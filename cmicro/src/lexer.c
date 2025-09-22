@@ -10,7 +10,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include "error.h" // centralized error handling
+#include <error.h>
 
 /* ================== */
 /* Helper tables      */
