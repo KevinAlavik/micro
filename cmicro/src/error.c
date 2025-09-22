@@ -1,0 +1,94 @@
+/*
+ * cmicro - Micro compiler
+ * Copyright (C) 2025 Kevin Alavik <kevin@alavik.se> <kevin@piraterna.org>
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+#include <error.h>
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+
+#define COLOR_RED "\x1b[31m"
+#define COLOR_YELLOW "\x1b[33m"
+#define COLOR_BLUE "\x1b[34m"
+#define COLOR_RESET "\x1b[0m"
+
+static const char* get_source_line(const char* src, uint32_t line)
+{
+    if (!src)
+        return NULL;
+    const char* p       = src;
+    uint32_t    current = 1;
+    const char* start   = p;
+
+    while (*p && current < line)
+    {
+        if (*p == '\n')
+            current++, start = p + 1;
+        p++;
+    }
+
+    const char* end = start;
+    while (*end && *end != '\n')
+        end++;
+
+    static char buf[512];
+    size_t      len = end - start;
+    if (len >= sizeof(buf))
+        len = sizeof(buf) - 1;
+    strncpy(buf, start, len);
+    buf[len] = '\0';
+    return buf;
+}
+
+void report_error(const error_t* err)
+{
+    const char* color = COLOR_RED;
+    const char* label = "Error";
+
+    switch (err->level)
+    {
+    case ERROR_FATAL:
+        color = COLOR_RED;
+        label = "Error";
+        break;
+    case ERROR_WARNING:
+        color = COLOR_YELLOW;
+        label = "Warning";
+        break;
+    case ERROR_INFO:
+        color = COLOR_BLUE;
+        label = "Info";
+        break;
+    default:
+        color = COLOR_BLUE;
+        label = "Unknown";
+        break;
+    }
+
+    const char* line_text = get_source_line(err->source, err->line);
+
+    fprintf(stderr, "%s%s%s: %s at line %u, column %u\n", color, label, COLOR_RESET, err->message,
+            err->line, err->column);
+
+    if (line_text)
+    {
+        fprintf(stderr, "%s\n", line_text);
+        for (uint32_t i = 1; i < err->column; i++)
+            fputc(' ', stderr);
+        fprintf(stderr, "%s^\n", color);
+        fprintf(stderr, COLOR_RESET);
+    }
+}

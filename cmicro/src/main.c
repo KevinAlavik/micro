@@ -16,8 +16,51 @@
  */
 
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <lexer.h>
 
-int main() {
-    printf("Hello, World!\n");
+int main(int argc, char** argv)
+{
+    if (argc < 2)
+    {
+        fprintf(stderr, "Usage: %s <source_file>\n", argv[0]);
+        return 1;
+    }
+
+    const char* filename = argv[1];
+    FILE*       f        = fopen(filename, "rb");
+    if (!f)
+    {
+        perror("Failed to open file");
+        return 1;
+    }
+
+    fseek(f, 0, SEEK_END);
+    long file_size = ftell(f);
+    rewind(f);
+
+    char* source = malloc(file_size + 1);
+    if (!source)
+    {
+        fprintf(stderr, "Memory allocation failed\n");
+        fclose(f);
+        return 1;
+    }
+
+    size_t read_bytes = fread(source, 1, file_size, f);
+    fclose(f);
+    source[read_bytes] = '\0';
+
+    lexer_t lex = {source, read_bytes, 0, 1, 1};
+    token_t tok;
+    do
+    {
+        tok = lexer_next(&lex);
+        printf("[%4u:%-3u] %-8s %-12.*s\n", tok.line, tok.column, TOKEN_TYPE_STR(tok.type),
+               (int) tok.len, tok.lexeme);
+    } while (tok.type != TOKEN_EOF && tok.type != TOKEN_ERROR);
+
+    free(source);
     return 0;
 }
