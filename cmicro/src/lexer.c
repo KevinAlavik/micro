@@ -103,6 +103,72 @@ static token_t lexer_error(lexer_t* lex, size_t start, const char* message)
     return tok;
 }
 
+static char lexer_parse_escape(lexer_t* lex)
+{
+    char c = lexer_advance(lex); // skip the '\'
+    switch (c)
+    {
+    case 'n':
+        return '\n';
+    case 't':
+        return '\t';
+    case 'r':
+        return '\r';
+    case '0':
+    case '1':
+    case '2':
+    case '3':
+    case '4':
+    case '5':
+    case '6':
+    case '7':
+    {
+        // Octal escape: up to 3 digits
+        int val = c - '0';
+        for (int i = 0; i < 2; i++)
+        {
+            char next = lexer_peek(lex);
+            if (next >= '0' && next <= '7')
+            {
+                val = (val << 3) + (next - '0');
+                lexer_advance(lex);
+            }
+            else
+                break;
+        }
+        return (char) val;
+    }
+    case 'x':
+    { // Hex escape
+        int val = 0;
+        while (isxdigit((unsigned char) lexer_peek(lex)))
+        {
+            char d = lexer_advance(lex);
+            val    = val * 16 + (isdigit(d) ? d - '0' : (tolower(d) - 'a' + 10));
+        }
+        return (char) val;
+    }
+    case '\'':
+        return '\'';
+    case '"':
+        return '"';
+    case '\\':
+        return '\\';
+    case '?':
+        return '?';
+    case 'a':
+        return '\a';
+    case 'b':
+        return '\b';
+    case 'f':
+        return '\f';
+    case 'v':
+        return '\v';
+    default:
+        return c; // Unknown escape: just return literal char
+    }
+}
+
 /* ============================ */
 /* Skip whitespace and comments */
 /* ============================ */
@@ -261,8 +327,17 @@ token_t lexer_next(lexer_t* lex)
     {
         lexer_advance(lex);
         size_t start = lex->pos;
-        // TODO: maybe resolve escape shit like \n
-        char val = lexer_advance(lex);
+        char   val;
+
+        if (lexer_peek(lex) == '\\')
+        {
+            lexer_advance(lex);
+            val = lexer_parse_escape(lex);
+        }
+        else
+        {
+            val = lexer_advance(lex);
+        }
 
         if (lexer_peek(lex) != '\'')
             return lexer_error(lex, start - 1, "Unterminated char literal");
@@ -272,8 +347,8 @@ token_t lexer_next(lexer_t* lex)
         tok.pos      = (uint32_t) (start - 1);
         tok.line     = lex->line;
         tok.column   = lex->column;
-        tok.lexeme   = &lex->src[start];
-        tok.len      = 1;
+        tok.lexeme   = &lex->src[start - 1];
+        tok.len      = lex->pos - (start - 1);
         tok.type     = TOKEN_CLIT;
         tok.value.ch = val;
         return tok;
@@ -283,14 +358,23 @@ token_t lexer_next(lexer_t* lex)
     if (c == '"')
     {
         lexer_advance(lex);
-        size_t start   = lex->pos;
-        size_t str_len = 0;
+        size_t start = lex->pos;
+
+        static char str_buf[1024];
+        size_t      str_len = 0;
 
         while (lexer_peek(lex) != '"' && lexer_peek(lex) != '\0')
         {
-            // TODO: also maybe resolve escape shit like \n
-            lexer_advance(lex);
-            str_len++;
+            char ch = lexer_peek(lex);
+            if (ch == '\\')
+            {
+                lexer_advance(lex);
+                str_buf[str_len++] = lexer_parse_escape(lex);
+            }
+            else
+            {
+                str_buf[str_len++] = lexer_advance(lex);
+            }
         }
 
         if (lexer_peek(lex) != '"')
@@ -302,10 +386,13 @@ token_t lexer_next(lexer_t* lex)
         tok.line        = lex->line;
         tok.column      = lex->column;
         tok.lexeme      = &lex->src[start];
-        tok.len         = str_len;
+        tok.len         = lex->pos - start - 1;
         tok.type        = TOKEN_SLIT;
-        tok.value.str.x = tok.lexeme;
-        tok.value.str.y = (int64_t) str_len;
+        tok.value.str.y = str_len;
+        memcpy(str_buf, str_buf, str_len);
+        tok.value.str.x = malloc(str_len + 1);
+        memcpy((char*) tok.value.str.x, str_buf, str_len);
+        ((char*) tok.value.str.x)[str_len] = '\0';
         return tok;
     }
 
