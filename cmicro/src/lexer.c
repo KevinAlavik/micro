@@ -25,7 +25,7 @@ static const keyword_t keywords[] = {
     {"int", TOKEN_KEYWORD},    {"return", TOKEN_KEYWORD}, {"if", TOKEN_KEYWORD},
     {"else", TOKEN_KEYWORD},   {"while", TOKEN_KEYWORD},  {"for", TOKEN_KEYWORD},
     {"void", TOKEN_KEYWORD},   {"char", TOKEN_KEYWORD},   {"float", TOKEN_KEYWORD},
-    {"double", TOKEN_KEYWORD},
+    {"double", TOKEN_KEYWORD}, {"true", TOKEN_BLIT},      {"false", TOKEN_BLIT},
 };
 static const size_t keyword_count = sizeof(keywords) / sizeof(keywords[0]);
 
@@ -70,7 +70,6 @@ static inline char lexer_advance(lexer_t* lex)
     return c;
 }
 
-/* Get current source line for error reporting */
 static const char* lexer_current_line(lexer_t* lex)
 {
     size_t start = lex->pos;
@@ -90,9 +89,23 @@ static const char* lexer_current_line(lexer_t* lex)
     return line_buf;
 }
 
-/* ================== */
+static token_t lexer_error(lexer_t* lex, size_t start, const char* message)
+{
+    token_t tok = {0};
+    tok.pos     = (uint32_t) start;
+    tok.line    = lex->line;
+    tok.column  = lex->column;
+    tok.lexeme  = &lex->src[start];
+    tok.len     = lex->pos - start;
+    tok.type    = TOKEN_ERROR;
+
+    ERROR_FATAL(lex->src, tok.line, tok.column, message);
+    return tok;
+}
+
+/* ============================ */
 /* Skip whitespace and comments */
-/* ================== */
+/* ============================ */
 static void lexer_skip_ws_and_comments(lexer_t* lex)
 {
     for (;;)
@@ -131,7 +144,7 @@ static void lexer_skip_ws_and_comments(lexer_t* lex)
             }
             else
             {
-                ERROR_FATAL(lex->src, lex->line, lex->column, "Unterminated block comment");
+                lexer_error(lex, lex->pos, "Unterminated block comment");
             }
             continue;
         }
@@ -188,18 +201,37 @@ token_t lexer_next(lexer_t* lex)
         return tok;
     }
 
-    // Numbers (integers, TODO: float's)
+    // Numbers (integers and floats)
     if (isdigit((unsigned char) c))
     {
-        size_t start = lex->pos;
-        while (isdigit((unsigned char) lexer_peek(lex)))
+        size_t start   = lex->pos;
+        int    has_dot = 0;
+
+        while (isdigit((unsigned char) lexer_peek(lex)) || lexer_peek(lex) == '.')
+        {
+            if (lexer_peek(lex) == '.')
+            {
+                if (has_dot)
+                    break;
+                has_dot = 1;
+            }
             lexer_advance(lex);
+        }
 
         size_t length = lex->pos - start;
         tok.lexeme    = &lex->src[start];
         tok.len       = length;
-        tok.type      = TOKEN_NLIT;
-        tok.value.i64 = strtoll(tok.lexeme, NULL, 10);
+
+        if (has_dot)
+        {
+            tok.type      = TOKEN_FLIT;
+            tok.value.f64 = strtod(tok.lexeme, NULL);
+        }
+        else
+        {
+            tok.type      = TOKEN_NLIT;
+            tok.value.i64 = strtoll(tok.lexeme, NULL, 10);
+        }
         return tok;
     }
 
@@ -214,6 +246,66 @@ token_t lexer_next(lexer_t* lex)
         tok.lexeme    = &lex->src[start];
         tok.len       = length;
         tok.type      = lookup_keyword(tok.lexeme, length);
+        if (tok.type == TOKEN_BLIT)
+        {
+            if (length == 4 && strncmp(tok.lexeme, "true", 4) == 0)
+                tok.value.i64 = 1;
+            else if (length == 5 && strncmp(tok.lexeme, "false", 5) == 0)
+                tok.value.i64 = 0;
+        }
+        return tok;
+    }
+
+    // Char literals
+    if (c == '\'')
+    {
+        lexer_advance(lex);
+        size_t start = lex->pos;
+        // TODO: maybe resolve escape shit like \n
+        char val = lexer_advance(lex);
+
+        if (lexer_peek(lex) != '\'')
+            return lexer_error(lex, start - 1, "Unterminated char literal");
+
+        lexer_advance(lex);
+
+        tok.pos      = (uint32_t) (start - 1);
+        tok.line     = lex->line;
+        tok.column   = lex->column;
+        tok.lexeme   = &lex->src[start];
+        tok.len      = 1;
+        tok.type     = TOKEN_CLIT;
+        tok.value.ch = val;
+        return tok;
+    }
+
+    // String literals
+    if (c == '"')
+    {
+        lexer_advance(lex);
+        size_t start   = lex->pos;
+        size_t str_len = 0;
+
+        while (lexer_peek(lex) != '"' && lexer_peek(lex) != '\0')
+        {
+            // TODO: also maybe resolve escape shit like \n
+            lexer_advance(lex);
+            str_len++;
+        }
+
+        if (lexer_peek(lex) != '"')
+            return lexer_error(lex, start - 1, "Unterminated string literal");
+
+        lexer_advance(lex);
+
+        tok.pos         = (uint32_t) (start - 1);
+        tok.line        = lex->line;
+        tok.column      = lex->column;
+        tok.lexeme      = &lex->src[start];
+        tok.len         = str_len;
+        tok.type        = TOKEN_SLIT;
+        tok.value.str.x = tok.lexeme;
+        tok.value.str.y = (int64_t) str_len;
         return tok;
     }
 
@@ -230,12 +322,10 @@ token_t lexer_next(lexer_t* lex)
         return tok;
     }
 
-    // Unknown or invalid character
     lexer_advance(lex);
     tok.lexeme = &lex->src[tok.pos];
     tok.len    = 1;
     tok.type   = TOKEN_ERROR;
-
     ERROR_FATAL(lex->src, tok.line, tok.column, "Unexpected character");
     return tok;
 }

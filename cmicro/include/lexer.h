@@ -18,10 +18,10 @@ typedef enum token_type
 {
     /* Literals */
     TOKEN_NLIT,
-    TOKEN_FLIT, // TODO
-    TOKEN_CLIT, // TODO
-    TOKEN_SLIT, // TODO
-    TOKEN_BLIT, // TODO
+    TOKEN_FLIT,
+    TOKEN_CLIT,
+    TOKEN_SLIT,
+    TOKEN_BLIT,
     TOKEN_IDENT,
     TOKEN_KEYWORD,
 
@@ -66,6 +66,11 @@ typedef struct token
         int64_t i64; // integer literals
         double  f64; // float literals
         char    ch;  // char literals
+        struct
+        {
+            const char* x; // pointer
+            int64_t     y; // lenght
+        } str;             // string literals
     } value;
 } token_t;
 
@@ -77,6 +82,7 @@ typedef struct token
      : (t) == TOKEN_FLIT    ? "FLIT"                                                               \
      : (t) == TOKEN_CLIT    ? "CLIT"                                                               \
      : (t) == TOKEN_SLIT    ? "SLIT"                                                               \
+     : (t) == TOKEN_BLIT    ? "BLIT"                                                               \
      : (t) == TOKEN_IDENT   ? "IDENT"                                                              \
      : (t) == TOKEN_KEYWORD ? "KEYWORD"                                                            \
      : (t) == TOKEN_PLUS    ? "PLUS"                                                               \
