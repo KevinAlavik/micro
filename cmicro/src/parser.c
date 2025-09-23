@@ -150,6 +150,25 @@ static ast_node_t* ast_create_ident(char* name, size_t name_len)
     return node;
 }
 
+static ast_node_t* ast_create_assign(char* name, size_t name_len, char* type, ast_node_t* value)
+{
+    if (error)
+        return NULL;
+    ast_node_t* node = (ast_node_t*) malloc(sizeof(ast_node_t));
+    if (!node)
+    {
+        ERROR_FATAL("", 0, 0, "Memory allocation failed for assign node");
+        error = true;
+        return NULL;
+    }
+    node->type                 = NODE_ASSIGN;
+    node->data.assign.name     = name;
+    node->data.assign.name_len = name_len;
+    node->data.assign.type     = type;
+    node->data.assign.value    = value;
+    return node;
+}
+
 static ast_node_t* ast_create_return(ast_node_t* expr)
 {
     if (error)
@@ -805,23 +824,103 @@ static ast_node_t* parse_statement(parser_t* parser)
     }
     else if (tok.type == TOKEN_KEYWORD)
     {
-        return parse_func_def(parser);
-    }
-    else if (tok.type == TOKEN_IDENT)
-    {
-        ast_node_t* call = parse_func_call(parser);
-        if (error)
+        token_t type_tok = parser_advance(parser);
+        token_t name_tok = parser_peek(parser);
+        if (name_tok.type != TOKEN_IDENT)
         {
-            return NULL;
-        }
-        if (parser_peek(parser).type != TOKEN_SEMI)
-        {
-            parser_error(parser, "Expected ';' after function call");
-            ast_free(call);
+            parser_error(parser, "Expected identifier after type");
             return NULL;
         }
         parser_advance(parser);
-        return call;
+        if (parser_peek(parser).type == TOKEN_LPAREN)
+        {
+            parser->pos -= 2;
+            return parse_func_def(parser);
+        }
+        else if (parser_peek(parser).type == TOKEN_ASSIGN)
+        {
+            parser_advance(parser);
+            ast_node_t* value = parse_expression(parser, 0);
+            if (error || !value)
+            {
+                parser_error(parser, "Expected expression after '=' in definition");
+                return NULL;
+            }
+            if (parser_peek(parser).type != TOKEN_SEMI)
+            {
+                parser_error(parser, "Expected ';' after definition");
+                ast_free(value);
+                return NULL;
+            }
+            parser_advance(parser);
+            char* name = strndup(name_tok.lexeme, name_tok.len);
+            char* type = strndup(type_tok.lexeme, type_tok.len);
+            if (!name || !type)
+            {
+                free(name);
+                free(type);
+                ast_free(value);
+                ERROR_FATAL("", 0, 0, "Memory allocation failed for definition");
+                error = true;
+                return NULL;
+            }
+            return ast_create_assign(name, name_tok.len, type, value);
+        }
+        else
+        {
+            parser_error(parser, "Expected '=' or '(' after identifier");
+            return NULL;
+        }
+    }
+    else if (tok.type == TOKEN_IDENT)
+    {
+        token_t name_tok = parser_advance(parser);
+        if (parser_peek(parser).type == TOKEN_LPAREN)
+        {
+            parser->pos--;
+            ast_node_t* call = parse_func_call(parser);
+            if (error)
+                return NULL;
+            if (parser_peek(parser).type != TOKEN_SEMI)
+            {
+                parser_error(parser, "Expected ';' after function call");
+                ast_free(call);
+                return NULL;
+            }
+            parser_advance(parser);
+            return call;
+        }
+        else if (parser_peek(parser).type == TOKEN_ASSIGN)
+        {
+            parser_advance(parser);
+            ast_node_t* value = parse_expression(parser, 0);
+            if (error || !value)
+            {
+                parser_error(parser, "Expected expression after '=' in assignment");
+                return NULL;
+            }
+            if (parser_peek(parser).type != TOKEN_SEMI)
+            {
+                parser_error(parser, "Expected ';' after assignment");
+                ast_free(value);
+                return NULL;
+            }
+            parser_advance(parser);
+            char* name = strndup(name_tok.lexeme, name_tok.len);
+            if (!name)
+            {
+                ast_free(value);
+                ERROR_FATAL("", 0, 0, "Memory allocation failed for assignment");
+                error = true;
+                return NULL;
+            }
+            return ast_create_assign(name, name_tok.len, NULL, value);
+        }
+        else
+        {
+            parser_error(parser, "Expected '=' or '(' after identifier");
+            return NULL;
+        }
     }
 
     parser_error(parser, "Unknown statement");
@@ -904,6 +1003,13 @@ static void ast_free_internal(ast_node_t* node)
     case NODE_IDENT:
         if (node->data.ident.name)
             free(node->data.ident.name);
+        break;
+    case NODE_ASSIGN:
+        if (node->data.assign.name)
+            free(node->data.assign.name);
+        if (node->data.assign.type)
+            free(node->data.assign.type);
+        ast_free(node->data.assign.value);
         break;
     case NODE_RETURN:
         ast_free(node->data.return_stmt.expr);

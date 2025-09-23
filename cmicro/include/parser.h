@@ -5,8 +5,8 @@
  * Licensed under the Apache License, Version 2.0
  */
 
-#ifndef PARSER_H
-#define PARSER_H
+#ifndef _CMICRO_PARSER_H
+#define _CMICRO_PARSER_H
 
 #include <lexer.h>
 
@@ -20,6 +20,7 @@ typedef enum
     NODE_FUNC_CALL,
     NODE_BLOCK,
     NODE_IDENT,
+    NODE_ASSIGN,
     NODE_PROGRAM
 } ast_node_type_t;
 
@@ -59,6 +60,14 @@ typedef struct
     char*  name;
     size_t name_len;
 } ast_ident_t;
+
+typedef struct
+{
+    char*            name;
+    size_t           name_len;
+    char*            type; // NOTE: NULL for assignment, non-NULL for definition
+    struct ast_node* value;
+} ast_assign_t;
 
 typedef struct
 {
@@ -103,6 +112,7 @@ typedef struct ast_node
         ast_number_t    number;
         ast_string_t    string;
         ast_ident_t     ident;
+        ast_assign_t    assign;
         ast_return_t    return_stmt;
         ast_func_def_t  func_def;
         ast_func_call_t func_call;
@@ -114,4 +124,4 @@ typedef struct ast_node
 ast_node_t* ast_gen(token_t* tokens);
 void        ast_free(ast_node_t* node);
 
-#endif
+#endif // _CMICRO_PARSER_H

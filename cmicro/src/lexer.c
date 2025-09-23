@@ -21,11 +21,13 @@ typedef struct
     token_type_t type;
 } keyword_t;
 
+// TODO: Figure out some other way to have built-in types.
 static const keyword_t keywords[] = {
-    {"int", TOKEN_KEYWORD},    {"return", TOKEN_KEYWORD}, {"if", TOKEN_KEYWORD},
-    {"else", TOKEN_KEYWORD},   {"while", TOKEN_KEYWORD},  {"for", TOKEN_KEYWORD},
-    {"void", TOKEN_KEYWORD},   {"char", TOKEN_KEYWORD},   {"float", TOKEN_KEYWORD},
-    {"double", TOKEN_KEYWORD}, {"true", TOKEN_BLIT},      {"false", TOKEN_BLIT},
+    {"int", TOKEN_KEYWORD},   {"uint", TOKEN_KEYWORD},   {"return", TOKEN_KEYWORD},
+    {"if", TOKEN_KEYWORD},    {"else", TOKEN_KEYWORD},   {"while", TOKEN_KEYWORD},
+    {"for", TOKEN_KEYWORD},   {"void", TOKEN_KEYWORD},   {"char", TOKEN_KEYWORD},
+    {"float", TOKEN_KEYWORD}, {"double", TOKEN_KEYWORD}, {"true", TOKEN_BLIT},
+    {"false", TOKEN_BLIT},
 };
 static const size_t keyword_count = sizeof(keywords) / sizeof(keywords[0]);
 

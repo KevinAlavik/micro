@@ -43,6 +43,18 @@ static void print_ast_indent(ast_node_t* node, int indent_level)
     case NODE_IDENT:
         printf("Ident(%.*s)", (int) node->data.ident.name_len, node->data.ident.name);
         break;
+    case NODE_ASSIGN:
+        if (node->data.assign.type)
+            printf("Definition(%s, %.*s,\n", node->data.assign.type,
+                   (int) node->data.assign.name_len, node->data.assign.name);
+        else
+            printf("Assignment(%.*s,\n", (int) node->data.assign.name_len, node->data.assign.name);
+        print_ast_indent(node->data.assign.value, indent_level + 1);
+        printf("\n");
+        for (int i = 0; i < indent_level; i++)
+            printf("  ");
+        printf(")");
+        break;
     case NODE_RETURN:
         printf("Return(\n");
         print_ast_indent(node->data.return_stmt.expr, indent_level + 1);
