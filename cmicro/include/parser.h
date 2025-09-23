@@ -21,7 +21,10 @@ typedef enum
     NODE_BLOCK,
     NODE_IDENT,
     NODE_ASSIGN,
-    NODE_PROGRAM
+    NODE_PROGRAM,
+    NODE_IF,
+    NODE_ELSEIF,
+    NODE_ELSE
 } ast_node_type_t;
 
 typedef struct param_node
@@ -103,6 +106,25 @@ typedef struct
     size_t           func_def_count;
 } ast_program_t;
 
+typedef struct
+{
+    struct ast_node* condition;
+    struct ast_node* then_block;
+    struct ast_node* else_block; // NOTE: Can be NULL, or point to NODE_ELSEIF or NODE_ELSE
+} ast_if_t;
+
+typedef struct
+{
+    struct ast_node* condition;
+    struct ast_node* then_block;
+    struct ast_node* else_block; // NOTE: Can be NULL, or point to NODE_ELSEIF or NODE_ELSE
+} ast_elseif_t;
+
+typedef struct
+{
+    struct ast_node* block;
+} ast_else_t;
+
 typedef struct ast_node
 {
     ast_node_type_t type;
@@ -118,6 +140,9 @@ typedef struct ast_node
         ast_func_call_t func_call;
         ast_block_t     block;
         ast_program_t   program;
+        ast_if_t        if_stmt;
+        ast_elseif_t    elseif_stmt;
+        ast_else_t      else_stmt;
     } data;
 } ast_node_t;
 

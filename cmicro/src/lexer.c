@@ -39,8 +39,8 @@ typedef struct
 
 static const op_t operators[] = {
     {"+", TOKEN_PLUS},    {"-", TOKEN_MINUS},  {"*", TOKEN_STAR},   {"/", TOKEN_SLASH},
-    {"%", TOKEN_PERCENT}, {"=", TOKEN_ASSIGN}, {"==", TOKEN_EQ},    {"!=", TOKEN_NEQ},
-    {"<", TOKEN_LT},      {">", TOKEN_GT},     {"<=", TOKEN_LTE},   {">=", TOKEN_GTE},
+    {"%", TOKEN_PERCENT}, {"==", TOKEN_EQ},    {"!=", TOKEN_NEQ},   {"=", TOKEN_ASSIGN},
+    {"<=", TOKEN_LTE},    {">=", TOKEN_GTE},   {"<", TOKEN_LT},     {">", TOKEN_GT},
     {"(", TOKEN_LPAREN},  {")", TOKEN_RPAREN}, {"{", TOKEN_LBRACE}, {"}", TOKEN_RBRACE},
     {";", TOKEN_SEMI},    {",", TOKEN_COMMA},
 };

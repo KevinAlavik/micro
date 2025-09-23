@@ -123,6 +123,44 @@ static void print_ast_indent(ast_node_t* node, int indent_level)
             printf("  ");
         printf("])");
         break;
+    case NODE_IF:
+        printf("If(\n");
+        print_ast_indent(node->data.if_stmt.condition, indent_level + 1);
+        printf(",\n");
+        print_ast_indent(node->data.if_stmt.then_block, indent_level + 1);
+        if (node->data.if_stmt.else_block)
+        {
+            printf(",\n");
+            print_ast_indent(node->data.if_stmt.else_block, indent_level + 1);
+        }
+        printf("\n");
+        for (int i = 0; i < indent_level; i++)
+            printf("  ");
+        printf(")");
+        break;
+    case NODE_ELSEIF:
+        printf("ElseIf(\n");
+        print_ast_indent(node->data.elseif_stmt.condition, indent_level + 1);
+        printf(",\n");
+        print_ast_indent(node->data.elseif_stmt.then_block, indent_level + 1);
+        if (node->data.elseif_stmt.else_block)
+        {
+            printf(",\n");
+            print_ast_indent(node->data.elseif_stmt.else_block, indent_level + 1);
+        }
+        printf("\n");
+        for (int i = 0; i < indent_level; i++)
+            printf("  ");
+        printf(")");
+        break;
+    case NODE_ELSE:
+        printf("Else(\n");
+        print_ast_indent(node->data.else_stmt.block, indent_level + 1);
+        printf("\n");
+        for (int i = 0; i < indent_level; i++)
+            printf("  ");
+        printf(")");
+        break;
     }
 }
 

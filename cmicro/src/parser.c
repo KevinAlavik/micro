@@ -52,12 +52,21 @@ static int get_precedence(token_type_t op)
     case TOKEN_STAR:
     case TOKEN_SLASH:
     case TOKEN_PERCENT:
-        return 2;
+        return 3;
     case TOKEN_PLUS:
     case TOKEN_MINUS:
+        return 2;
+    case TOKEN_EQ:
+    case TOKEN_NEQ:
+    case TOKEN_LT:
+    case TOKEN_GT:
+    case TOKEN_LTE:
+    case TOKEN_GTE:
         return 1;
-    default:
+    case TOKEN_ASSIGN:
         return 0;
+    default:
+        return -1;
     }
 }
 
@@ -260,6 +269,60 @@ static ast_node_t* ast_create_program(ast_node_t* func_defs, size_t func_def_cou
     return node;
 }
 
+static ast_node_t* ast_create_if(ast_node_t* condition, ast_node_t* then_block,
+                                 ast_node_t* else_block)
+{
+    if (error)
+        return NULL;
+    ast_node_t* node = (ast_node_t*) malloc(sizeof(ast_node_t));
+    if (!node)
+    {
+        ERROR_FATAL("", 0, 0, "Memory allocation failed for if node");
+        error = true;
+        return NULL;
+    }
+    node->type                    = NODE_IF;
+    node->data.if_stmt.condition  = condition;
+    node->data.if_stmt.then_block = then_block;
+    node->data.if_stmt.else_block = else_block;
+    return node;
+}
+
+static ast_node_t* ast_create_elseif(ast_node_t* condition, ast_node_t* then_block,
+                                     ast_node_t* else_block)
+{
+    if (error)
+        return NULL;
+    ast_node_t* node = (ast_node_t*) malloc(sizeof(ast_node_t));
+    if (!node)
+    {
+        ERROR_FATAL("", 0, 0, "Memory allocation failed for elseif node");
+        error = true;
+        return NULL;
+    }
+    node->type                        = NODE_ELSEIF;
+    node->data.elseif_stmt.condition  = condition;
+    node->data.elseif_stmt.then_block = then_block;
+    node->data.elseif_stmt.else_block = else_block;
+    return node;
+}
+
+static ast_node_t* ast_create_else(ast_node_t* block)
+{
+    if (error)
+        return NULL;
+    ast_node_t* node = (ast_node_t*) malloc(sizeof(ast_node_t));
+    if (!node)
+    {
+        ERROR_FATAL("", 0, 0, "Memory allocation failed for else node");
+        error = true;
+        return NULL;
+    }
+    node->type                 = NODE_ELSE;
+    node->data.else_stmt.block = block;
+    return node;
+}
+
 static param_node_t* ast_create_param(char* name, size_t name_len, char* type)
 {
     if (error)
@@ -287,6 +350,7 @@ static ast_node_t*   parse_statement(parser_t* parser);
 static param_node_t* parse_param_list(parser_t* parser);
 static ast_node_t*   parse_func_def(parser_t* parser);
 static ast_node_t*   parse_func_call(parser_t* parser);
+static ast_node_t*   parse_if_statement(parser_t* parser);
 
 static ast_node_t* parse_factor(parser_t* parser)
 {
@@ -365,7 +429,7 @@ static ast_node_t* parse_expression(parser_t* parser, int min_precedence)
     {
         token_t tok        = parser_peek(parser);
         int     precedence = get_precedence(tok.type);
-        if (precedence == 0 || precedence < min_precedence)
+        if (precedence < min_precedence)
         {
             break;
         }
@@ -798,6 +862,214 @@ static ast_node_t* parse_func_call(parser_t* parser)
     return ast_create_func_call(name, name_tok.len, args, arg_count);
 }
 
+static ast_node_t* parse_if_statement(parser_t* parser)
+{
+    if (error)
+        return NULL;
+    token_t tok = parser_peek(parser);
+    if (tok.type != TOKEN_KEYWORD || strncmp(tok.lexeme, "if", tok.len) != 0)
+    {
+        parser_error(parser, "Expected 'if' keyword");
+        return NULL;
+    }
+    parser_advance(parser);
+
+    if (parser_peek(parser).type != TOKEN_LPAREN)
+    {
+        parser_error(parser, "Expected '(' after 'if'");
+        return NULL;
+    }
+    parser_advance(parser);
+
+    ast_node_t* condition = parse_expression(parser, 0);
+    if (error || !condition)
+    {
+        parser_error(parser, "Expected condition expression in 'if'");
+        return NULL;
+    }
+
+    if (parser_peek(parser).type != TOKEN_RPAREN)
+    {
+        parser_error(parser, "Expected ')' after condition");
+        ast_free(condition);
+        return NULL;
+    }
+    parser_advance(parser);
+
+    if (parser_peek(parser).type != TOKEN_LBRACE)
+    {
+        parser_error(parser, "Expected '{' for if body");
+        ast_free(condition);
+        return NULL;
+    }
+    parser_advance(parser);
+
+    ast_node_t* stmts      = NULL;
+    size_t      stmt_count = 0;
+    size_t      capacity   = 0;
+
+    while (parser_peek(parser).type != TOKEN_RBRACE)
+    {
+        ast_node_t* stmt = parse_statement(parser);
+        if (error)
+        {
+            ast_free(condition);
+            for (size_t i = 0; i < stmt_count; i++)
+                ast_free_internal(&stmts[i]);
+            free(stmts);
+            return NULL;
+        }
+        if (!stmt)
+            break;
+
+        if (stmt_count >= capacity)
+        {
+            capacity              = capacity ? capacity * 2 : 8;
+            ast_node_t* new_stmts = (ast_node_t*) realloc(stmts, capacity * sizeof(ast_node_t));
+            if (!new_stmts)
+            {
+                ERROR_FATAL("", 0, 0, "Memory allocation failed for statements");
+                error = true;
+                ast_free(stmt);
+                ast_free(condition);
+                for (size_t i = 0; i < stmt_count; i++)
+                    ast_free_internal(&stmts[i]);
+                free(stmts);
+                return NULL;
+            }
+            stmts = new_stmts;
+        }
+
+        stmts[stmt_count++] = *stmt;
+        free(stmt);
+    }
+
+    if (parser_peek(parser).type != TOKEN_RBRACE)
+    {
+        parser_error(parser, "Expected '}' to close if body");
+        ast_free(condition);
+        for (size_t i = 0; i < stmt_count; i++)
+            ast_free_internal(&stmts[i]);
+        free(stmts);
+        return NULL;
+    }
+    parser_advance(parser);
+
+    ast_node_t* then_block = ast_create_block(stmts, stmt_count);
+    if (!then_block)
+    {
+        ast_free(condition);
+        for (size_t i = 0; i < stmt_count; i++)
+            ast_free_internal(&stmts[i]);
+        free(stmts);
+        return NULL;
+    }
+
+    ast_node_t* else_block = NULL;
+    token_t     next_tok   = parser_peek(parser);
+    if (next_tok.type == TOKEN_KEYWORD && strncmp(next_tok.lexeme, "else", next_tok.len) == 0)
+    {
+        parser_advance(parser);
+        next_tok = parser_peek(parser);
+        if (next_tok.type == TOKEN_KEYWORD && strncmp(next_tok.lexeme, "if", next_tok.len) == 0)
+        {
+            else_block = parse_if_statement(parser);
+            if (error)
+            {
+                ast_free(condition);
+                ast_free(then_block);
+                return NULL;
+            }
+        }
+        else if (next_tok.type == TOKEN_LBRACE)
+        {
+            parser_advance(parser);
+            stmts      = NULL;
+            stmt_count = 0;
+            capacity   = 0;
+
+            while (parser_peek(parser).type != TOKEN_RBRACE)
+            {
+                ast_node_t* stmt = parse_statement(parser);
+                if (error)
+                {
+                    ast_free(condition);
+                    ast_free(then_block);
+                    for (size_t i = 0; i < stmt_count; i++)
+                        ast_free_internal(&stmts[i]);
+                    free(stmts);
+                    return NULL;
+                }
+                if (!stmt)
+                    break;
+
+                if (stmt_count >= capacity)
+                {
+                    capacity = capacity ? capacity * 2 : 8;
+                    ast_node_t* new_stmts =
+                        (ast_node_t*) realloc(stmts, capacity * sizeof(ast_node_t));
+                    if (!new_stmts)
+                    {
+                        ERROR_FATAL("", 0, 0, "Memory allocation failed for else statements");
+                        error = true;
+                        ast_free(stmt);
+                        ast_free(condition);
+                        ast_free(then_block);
+                        for (size_t i = 0; i < stmt_count; i++)
+                            ast_free_internal(&stmts[i]);
+                        free(stmts);
+                        return NULL;
+                    }
+                    stmts = new_stmts;
+                }
+
+                stmts[stmt_count++] = *stmt;
+                free(stmt);
+            }
+
+            if (parser_peek(parser).type != TOKEN_RBRACE)
+            {
+                parser_error(parser, "Expected '}' to close else body");
+                ast_free(condition);
+                ast_free(then_block);
+                for (size_t i = 0; i < stmt_count; i++)
+                    ast_free_internal(&stmts[i]);
+                free(stmts);
+                return NULL;
+            }
+            parser_advance(parser);
+
+            ast_node_t* else_body = ast_create_block(stmts, stmt_count);
+            if (!else_body)
+            {
+                ast_free(condition);
+                ast_free(then_block);
+                for (size_t i = 0; i < stmt_count; i++)
+                    ast_free_internal(&stmts[i]);
+                free(stmts);
+                return NULL;
+            }
+            else_block = ast_create_else(else_body);
+            if (!else_block)
+            {
+                ast_free(condition);
+                ast_free(then_block);
+                ast_free(else_body);
+                return NULL;
+            }
+        }
+        else
+        {
+            parser_error(parser, "Expected 'if' or '{' after 'else'");
+            ast_free(condition);
+            ast_free(then_block);
+            return NULL;
+        }
+    }
+
+    return ast_create_if(condition, then_block, else_block);
+}
+
 static ast_node_t* parse_statement(parser_t* parser)
 {
     if (error)
@@ -821,6 +1093,10 @@ static ast_node_t* parse_statement(parser_t* parser)
         }
         parser_advance(parser);
         return ast_create_return(expr);
+    }
+    else if (tok.type == TOKEN_KEYWORD && strncmp(tok.lexeme, "if", tok.len) == 0)
+    {
+        return parse_if_statement(parser);
     }
     else if (tok.type == TOKEN_KEYWORD)
     {
@@ -1063,6 +1339,19 @@ static void ast_free_internal(ast_node_t* node)
             }
             free(node->data.program.func_defs);
         }
+        break;
+    case NODE_IF:
+        ast_free(node->data.if_stmt.condition);
+        ast_free(node->data.if_stmt.then_block);
+        ast_free(node->data.if_stmt.else_block);
+        break;
+    case NODE_ELSEIF:
+        ast_free(node->data.elseif_stmt.condition);
+        ast_free(node->data.elseif_stmt.then_block);
+        ast_free(node->data.elseif_stmt.else_block);
+        break;
+    case NODE_ELSE:
+        ast_free(node->data.else_stmt.block);
         break;
     }
 }
