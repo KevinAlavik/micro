@@ -103,6 +103,8 @@ typedef struct token
      : (t) == TOKEN_LBRACE  ? "LBRACE"                                                             \
      : (t) == TOKEN_RBRACE  ? "RBRACE"                                                             \
      : (t) == TOKEN_SEMI    ? "SEMI"                                                               \
+     : (t) == TOKEN_DOT     ? "DOT"                                                                \
+     : (t) == TOKEN_ERROR   ? "ERROR"                                                              \
      : (t) == TOKEN_COMMA   ? "COMMA"                                                              \
      : (t) == TOKEN_EOF     ? "EOF"                                                                \
                             : "UNKNOWN")
