@@ -1,5 +1,4 @@
 /* Macro programming languge - Hello, World */
-
 int main()
 {
     printf("Hello, World!\n"); // UB - since printf isnt really defined somewhere, will compile with
