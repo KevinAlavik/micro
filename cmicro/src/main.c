@@ -10,6 +10,8 @@
 #include <string.h>
 #include <lexer.h>
 #include <parser.h>
+#include <typechecker.h>
+#include <codegen.h>
 
 static void print_ast_indent(ast_node_t* node, int indent_level)
 {
