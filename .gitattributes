@@ -1,2 +1,2 @@
-*.m linguist-language=Micro
-*.m diff=Micro
+*.m linguist-language=c
+*.m diff=c
