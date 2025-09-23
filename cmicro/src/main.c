@@ -8,11 +8,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <getopt.h>
 #include <lexer.h>
 #include <parser.h>
 #include <typechecker.h>
 #include <codegen.h>
 
+/* AST Printing */
 static void print_ast_indent(ast_node_t* node, int indent_level)
 {
     if (!node)
@@ -174,19 +176,97 @@ static void print_ast(ast_node_t* node)
     print_ast_indent(node, 0);
 }
 
+/* Command-line Utilities */
+static void print_usage(const char* prog_name)
+{
+    printf("Usage: %s [options] <source_file>\n", prog_name);
+    printf("Options:\n");
+    printf("  -h, --help                Display this help message and exit\n");
+    printf("  -u, --usage               Display usage information and exit\n");
+    printf("  -v, --version             Display version information and exit\n");
+    printf("  -V, --verbose             Enable verbose output\n");
+    printf("  -f, --output-format=TYPE  Set output format (lexer, ast, bin)\n");
+    printf("  -o, --output=FILE         Specify output file for binary\n");
+}
+
+static void print_version(void)
+{
+    printf("cmicro version 0.1.0\n");
+}
+
+/* Main Function */
 int main(int argc, char** argv)
 {
-    if (argc < 2)
+    int         verbose       = 0;
+    const char* output_format = "bin";   // Default to bin
+    const char* output_file   = "a.out"; // Default output file
+    const char* filename      = NULL;
+
+    /* Parse command-line options */
+    static struct option long_options[] = {{"help", no_argument, 0, 'h'},
+                                           {"usage", no_argument, 0, 'u'},
+                                           {"version", no_argument, 0, 'v'},
+                                           {"verbose", no_argument, 0, 'V'},
+                                           {"output-format", required_argument, 0, 'f'},
+                                           {"output", required_argument, 0, 'o'},
+                                           {0, 0, 0, 0}};
+
+    int opt;
+    while ((opt = getopt_long(argc, argv, "huvVf:o:", long_options, NULL)) != -1)
     {
-        fprintf(stderr, "Usage: %s <source_file>\n", argv[0]);
+        switch (opt)
+        {
+        case 'h':
+            print_usage(argv[0]);
+            return 0;
+        case 'u':
+            print_usage(argv[0]);
+            return 0;
+        case 'v':
+            print_version();
+            return 0;
+        case 'V':
+            verbose = 1;
+            break;
+        case 'f':
+            if (strcmp(optarg, "lexer") != 0 && strcmp(optarg, "ast") != 0 &&
+                strcmp(optarg, "bin") != 0)
+            {
+                fprintf(stderr,
+                        "Error: Invalid output format '%s'. Must be 'lexer', 'ast', or 'bin'.\n",
+                        optarg);
+                return 1;
+            }
+            output_format = optarg;
+            break;
+        case 'o':
+            output_file = optarg;
+            break;
+        default:
+            print_usage(argv[0]);
+            return 1;
+        }
+    }
+
+    if (optind >= argc)
+    {
+        fprintf(stderr, "Error: No source file provided\n");
+        print_usage(argv[0]);
         return 1;
     }
 
-    const char* filename = argv[1];
-    FILE*       f        = fopen(filename, "rb");
+    filename = argv[optind];
+
+    /* Read source file */
+    if (verbose)
+    {
+        printf("[*] Reading source file '%s'...\n", filename);
+    }
+
+    FILE* f = fopen(filename, "rb");
     if (!f)
     {
-        perror("Failed to open file");
+        perror("Error: Failed to open source file");
         return 1;
     }
 
@@ -197,7 +277,7 @@ int main(int argc, char** argv)
     char* source = malloc(file_size + 1);
     if (!source)
     {
-        fprintf(stderr, "Memory allocation failed\n");
+        fprintf(stderr, "Error: Memory allocation failed for source buffer\n");
         fclose(f);
         return 1;
     }
@@ -206,14 +286,24 @@ int main(int argc, char** argv)
     fclose(f);
     source[read_bytes] = '\0';
 
-    lexer_t lex = {source, read_bytes, 0, 1, 1};
+    if (verbose)
+    {
+        printf("[+] Done reading source file\n");
+    }
 
+    /* Lexing */
+    if (verbose)
+    {
+        printf("[*] Lexing source code...\n");
+    }
+
+    lexer_t  lex      = {source, read_bytes, 0, 1, 1};
     size_t   capacity = 64;
     size_t   count    = 0;
     token_t* tokens   = malloc(capacity * sizeof(token_t));
     if (!tokens)
     {
-        fprintf(stderr, "Memory allocation failed\n");
+        fprintf(stderr, "Error: Memory allocation failed for token buffer\n");
         free(source);
         return 1;
     }
@@ -224,7 +314,7 @@ int main(int argc, char** argv)
 
         if (tok.type == TOKEN_ERROR)
         {
-            fprintf(stderr, "Lexing error at [%u:%u]\n", tok.line, tok.column);
+            fprintf(stderr, "Error: Lexing error at [%u:%u]\n", tok.line, tok.column);
             free(tokens);
             free(source);
             return 1;
@@ -236,7 +326,7 @@ int main(int argc, char** argv)
             token_t* new_tokens = realloc(tokens, capacity * sizeof(token_t));
             if (!new_tokens)
             {
-                fprintf(stderr, "Memory allocation failed\n");
+                fprintf(stderr, "Error: Memory allocation failed for token buffer\n");
                 free(tokens);
                 free(source);
                 return 1;
@@ -250,45 +340,124 @@ int main(int argc, char** argv)
             break;
     }
 
-    for (size_t i = 0; i < count; i++)
+    if (verbose)
     {
-        token_t tok = tokens[i];
-        printf("[%4u:%-3u] %-10s %-15.*s", tok.line, tok.column, TOKEN_TYPE_STR(tok.type),
-               (int) tok.len, tok.lexeme);
+        printf("[+] Done lexing, found %zu tokens\n", count);
+    }
 
-        switch (tok.type)
+    /* Output lexer tokens if requested */
+    if (strcmp(output_format, "lexer") == 0 || verbose)
+    {
+        for (size_t i = 0; i < count; i++)
         {
-        case TOKEN_NLIT:
-            printf("  (int: %lld)", (long long) tok.value.i64);
-            break;
-        case TOKEN_FLIT:
-            printf("  (float: %f)", tok.value.f64);
-            break;
-        case TOKEN_CLIT:
-            printf("  (char: '%c')", tok.value.ch);
-            break;
-        case TOKEN_SLIT:
-            printf("  (string: \"%.*s\")", (int) tok.value.str.y, tok.value.str.x);
-            break;
-        case TOKEN_BLIT:
-            printf("  (bool: %s)", tok.value.i64 ? "true" : "false");
-            break;
-        default:
-            break;
-        }
+            token_t tok = tokens[i];
+            printf("[%4u:%-3u] %-10s %-15.*s", tok.line, tok.column, TOKEN_TYPE_STR(tok.type),
+                   (int) tok.len, tok.lexeme);
 
-        printf("\n");
+            switch (tok.type)
+            {
+            case TOKEN_NLIT:
+                printf("  (int: %lld)", (long long) tok.value.i64);
+                break;
+            case TOKEN_FLIT:
+                printf("  (float: %f)", tok.value.f64);
+                break;
+            case TOKEN_CLIT:
+                printf("  (char: '%c')", tok.value.ch);
+                break;
+            case TOKEN_SLIT:
+                printf("  (string: \"%.*s\")", (int) tok.value.str.y, tok.value.str.x);
+                break;
+            case TOKEN_BLIT:
+                printf("  (bool: %s)", tok.value.i64 ? "true" : "false");
+                break;
+            default:
+                break;
+            }
+            printf("\n");
+        }
+        if (strcmp(output_format, "lexer") == 0)
+        {
+            for (size_t i = 0; i < count; i++)
+            {
+                if (tokens[i].type == TOKEN_SLIT)
+                {
+                    free((char*) tokens[i].value.str.x);
+                }
+            }
+            free(tokens);
+            free(source);
+            return 0;
+        }
+    }
+
+    /* Parsing */
+    if (verbose)
+    {
+        printf("[*] Parsing tokens into AST...\n");
     }
 
     ast_node_t* ast = ast_gen(tokens);
-    if (ast)
+    if (!ast)
+    {
+        fprintf(stderr, "Error: Failed to generate AST\n");
+        for (size_t i = 0; i < count; i++)
+        {
+            if (tokens[i].type == TOKEN_SLIT)
+            {
+                free((char*) tokens[i].value.str.x);
+            }
+        }
+        free(tokens);
+        free(source);
+        return 1;
+    }
+
+    if (verbose)
+    {
+        printf("[+] Done parsing\n");
+    }
+
+    /* Output AST if requested */
+    if (strcmp(output_format, "ast") == 0 || verbose)
     {
         printf("\n=== AST ===\n");
         print_ast(ast);
         printf("\n");
-        ast_free(ast);
+        if (strcmp(output_format, "ast") == 0)
+        {
+            ast_free(ast);
+            for (size_t i = 0; i < count; i++)
+            {
+                if (tokens[i].type == TOKEN_SLIT)
+                {
+                    free((char*) tokens[i].value.str.x);
+                }
+            }
+            free(tokens);
+            free(source);
+            return 0;
+        }
     }
 
+    /* Codegen for bin output */
+    if (strcmp(output_format, "bin") == 0)
+    {
+        if (verbose)
+        {
+            printf("[*] Generating code to '%s'...\n", output_file);
+        }
+
+        codegen_generate(ast, output_file);
+
+        if (verbose)
+        {
+            printf("[+] Done generating code\n");
+        }
+    }
+
+    /* Cleanup */
+    ast_free(ast);
     for (size_t i = 0; i < count; i++)
     {
         if (tokens[i].type == TOKEN_SLIT)
@@ -298,5 +467,6 @@ int main(int argc, char** argv)
     }
     free(tokens);
     free(source);
+
     return 0;
 }

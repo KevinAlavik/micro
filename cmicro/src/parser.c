@@ -5,7 +5,6 @@
  * Licensed under the Apache License, Version 2.0
  */
 
-#define _GNU_SOURCE
 #include <parser.h>
 #include <stdlib.h>
 #include <error.h>

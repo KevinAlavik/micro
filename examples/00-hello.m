@@ -1,8 +1,6 @@
 /* Macro programming languge - Hello, World */
-import std.io;
-
 int main()
 {
-    println("Hello, World!");
+    printf("Hello, World!\n");
     return 0;
 }
