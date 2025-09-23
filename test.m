@@ -33,5 +33,9 @@ int main(int argc)
         printf("we cooked\n");
     }
 
+    int  a = 0;
+    uint b = 1;
+    a      = (int) b;
+
     return add(1, 1);
 }
