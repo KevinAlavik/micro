@@ -37,5 +37,7 @@ int main(int argc)
     uint b = 1;
     a      = (int) b;
 
+    int* c = &a;
+
     return add(1, 1);
 }
