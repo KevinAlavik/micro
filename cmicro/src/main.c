@@ -161,6 +161,9 @@ static void print_ast_indent(ast_node_t* node, int indent_level)
             printf("  ");
         printf(")");
         break;
+    case NODE_IMPORT:
+        printf("Import(\"%s\")", node->data.import.module);
+        break;
     }
 }
 

@@ -23,11 +23,15 @@ typedef struct
 
 // TODO: Figure out some other way to have built-in types.
 static const keyword_t keywords[] = {
-    {"int", TOKEN_KEYWORD},   {"uint", TOKEN_KEYWORD},   {"return", TOKEN_KEYWORD},
-    {"if", TOKEN_KEYWORD},    {"else", TOKEN_KEYWORD},   {"while", TOKEN_KEYWORD},
-    {"for", TOKEN_KEYWORD},   {"void", TOKEN_KEYWORD},   {"char", TOKEN_KEYWORD},
-    {"float", TOKEN_KEYWORD}, {"double", TOKEN_KEYWORD}, {"true", TOKEN_BLIT},
-    {"false", TOKEN_BLIT},
+    {"import", TOKEN_KEYWORD}, {"typedef", TOKEN_KEYWORD},
+
+    {"return", TOKEN_KEYWORD}, {"if", TOKEN_KEYWORD},      {"else", TOKEN_KEYWORD},
+    {"while", TOKEN_KEYWORD},  {"for", TOKEN_KEYWORD},     {"void", TOKEN_KEYWORD},
+
+    {"char", TOKEN_KEYWORD},   {"int", TOKEN_KEYWORD},     {"uint", TOKEN_KEYWORD},
+    {"float", TOKEN_KEYWORD},  {"double", TOKEN_KEYWORD},
+
+    {"true", TOKEN_BLIT},      {"false", TOKEN_BLIT},
 };
 static const size_t keyword_count = sizeof(keywords) / sizeof(keywords[0]);
 
@@ -42,7 +46,7 @@ static const op_t operators[] = {
     {"%", TOKEN_PERCENT}, {"==", TOKEN_EQ},    {"!=", TOKEN_NEQ},   {"=", TOKEN_ASSIGN},
     {"<=", TOKEN_LTE},    {">=", TOKEN_GTE},   {"<", TOKEN_LT},     {">", TOKEN_GT},
     {"(", TOKEN_LPAREN},  {")", TOKEN_RPAREN}, {"{", TOKEN_LBRACE}, {"}", TOKEN_RBRACE},
-    {";", TOKEN_SEMI},    {",", TOKEN_COMMA},
+    {";", TOKEN_SEMI},    {",", TOKEN_COMMA},  {".", TOKEN_DOT},
 };
 static const size_t op_count = sizeof(operators) / sizeof(operators[0]);
 

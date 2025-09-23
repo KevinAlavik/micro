@@ -24,7 +24,8 @@ typedef enum
     NODE_PROGRAM,
     NODE_IF,
     NODE_ELSEIF,
-    NODE_ELSE
+    NODE_ELSE,
+    NODE_IMPORT,
 } ast_node_type_t;
 
 typedef struct param_node
@@ -125,6 +126,11 @@ typedef struct
     struct ast_node* block;
 } ast_else_t;
 
+typedef struct
+{
+    char* module;
+} ast_import_t;
+
 typedef struct ast_node
 {
     ast_node_type_t type;
@@ -143,6 +149,7 @@ typedef struct ast_node
         ast_if_t        if_stmt;
         ast_elseif_t    elseif_stmt;
         ast_else_t      else_stmt;
+        ast_import_t    import;
     } data;
 } ast_node_t;
 

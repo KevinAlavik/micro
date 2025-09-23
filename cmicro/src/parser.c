@@ -341,6 +341,22 @@ static param_node_t* ast_create_param(char* name, size_t name_len, char* type)
     return param;
 }
 
+static ast_node_t* ast_create_import(char* module)
+{
+    if (error)
+        return NULL;
+    ast_node_t* node = (ast_node_t*) malloc(sizeof(ast_node_t));
+    if (!node)
+    {
+        ERROR_FATAL("", 0, 0, "Memory allocation failed for import node");
+        error = true;
+        return NULL;
+    }
+    node->type               = NODE_IMPORT;
+    node->data.import.module = module;
+    return node;
+}
+
 /* ================== */
 /* Parsers            */
 /* ================== */
@@ -1147,6 +1163,79 @@ static ast_node_t* parse_statement(parser_t* parser)
         parser_advance(parser);
         return ast_create_return(expr);
     }
+    else if (tok.type == TOKEN_KEYWORD && strncmp(tok.lexeme, "import", tok.len) == 0)
+    {
+        parser_advance(parser);
+        token_t ident_tok = parser_peek(parser);
+        if (ident_tok.type != TOKEN_IDENT)
+        {
+            parser_error(parser, "Expected module name after import statement");
+            return NULL;
+        }
+
+        // Calculate total length needed for module string (including dots)
+        size_t total_len   = ident_tok.len;
+        size_t ident_count = 1;
+        size_t temp_pos    = parser->pos;
+
+        while (parser->tokens[temp_pos + 1].type == TOKEN_DOT &&
+               parser->tokens[temp_pos + 2].type == TOKEN_IDENT)
+        {
+            total_len += 1; // For the dot
+            total_len += parser->tokens[temp_pos + 2].len;
+            ident_count++;
+            temp_pos += 2;
+        }
+
+        // Allocate memory for the module string
+        char* module = (char*) malloc(total_len + 1);
+        if (!module)
+        {
+            ERROR_FATAL("", 0, 0, "Memory allocation failed for module name");
+            error = true;
+            return NULL;
+        }
+        module[0] = '\0';
+
+        // Build the module string
+        size_t offset = 0;
+        for (size_t i = 0; i < ident_count; i++)
+        {
+            token_t current_ident = parser_peek(parser);
+            if (current_ident.type != TOKEN_IDENT)
+            {
+                parser_error(parser, "Expected identifier in module name");
+                free(module);
+                return NULL;
+            }
+            memcpy(module + offset, current_ident.lexeme, current_ident.len);
+            offset += current_ident.len;
+            parser_advance(parser);
+
+            if (i < ident_count - 1)
+            {
+                if (parser_peek(parser).type != TOKEN_DOT)
+                {
+                    parser_error(parser, "Expected '.' in module name");
+                    free(module);
+                    return NULL;
+                }
+                module[offset++] = '.';
+                parser_advance(parser);
+            }
+        }
+        module[offset] = '\0';
+
+        if (parser_peek(parser).type != TOKEN_SEMI)
+        {
+            parser_error(parser, "Expected ';' after import statement");
+            free(module);
+            return NULL;
+        }
+        parser_advance(parser);
+
+        return ast_create_import(module);
+    }
     else if (tok.type == TOKEN_KEYWORD && strncmp(tok.lexeme, "if", tok.len) == 0)
     {
         return parse_if_statement(parser);
@@ -1405,6 +1494,10 @@ static void ast_free_internal(ast_node_t* node)
         break;
     case NODE_ELSE:
         ast_free(node->data.else_stmt.block);
+        break;
+    case NODE_IMPORT:
+        if (node->data.import.module)
+            free(node->data.import.module);
         break;
     }
 }

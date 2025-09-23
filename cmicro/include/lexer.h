@@ -46,6 +46,7 @@ typedef enum token_type
     TOKEN_RBRACE, // }
     TOKEN_SEMI,   // ;
     TOKEN_COMMA,  // ,
+    TOKEN_DOT,    // .
 
     /* Specials */
     TOKEN_ERROR = 0xdeadbeef,
