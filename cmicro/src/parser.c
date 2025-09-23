@@ -1173,7 +1173,6 @@ static ast_node_t* parse_statement(parser_t* parser)
             return NULL;
         }
 
-        // Calculate total length needed for module string (including dots)
         size_t total_len   = ident_tok.len;
         size_t ident_count = 1;
         size_t temp_pos    = parser->pos;
@@ -1181,13 +1180,12 @@ static ast_node_t* parse_statement(parser_t* parser)
         while (parser->tokens[temp_pos + 1].type == TOKEN_DOT &&
                parser->tokens[temp_pos + 2].type == TOKEN_IDENT)
         {
-            total_len += 1; // For the dot
+            total_len += 1;
             total_len += parser->tokens[temp_pos + 2].len;
             ident_count++;
             temp_pos += 2;
         }
 
-        // Allocate memory for the module string
         char* module = (char*) malloc(total_len + 1);
         if (!module)
         {
@@ -1197,7 +1195,6 @@ static ast_node_t* parse_statement(parser_t* parser)
         }
         module[0] = '\0';
 
-        // Build the module string
         size_t offset = 0;
         for (size_t i = 0; i < ident_count; i++)
         {
