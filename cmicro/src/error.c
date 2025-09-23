@@ -73,7 +73,7 @@ void report_error(const error_t* err)
     fprintf(stderr, "%s%s%s: %s at line %u, column %u\n", color, label, COLOR_RESET, err->message,
             err->line, err->column);
 
-    if (line_text)
+    if (line_text && line_text[0] != '\0')
     {
         fprintf(stderr, "%s\n", line_text);
         for (uint32_t i = 1; i < err->column; i++)

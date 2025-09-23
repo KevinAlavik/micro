@@ -4,11 +4,13 @@ Macro Programming languge
 0. Hello World
 */
 
-int main()
+int add(int a, int b)
+{
+    return a + b;
+}
+
+int main(int argc)
 {
     printf("This is a test\n");
-    float test1 = 3.14;
-    int   test2 = 1337;
-    bool  test3 = true;
-    return 0;
+    return add(1, 1);
 }
