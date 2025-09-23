@@ -81,10 +81,19 @@ static var_info_t   find_sym(const char* name);
 static ast_node_t*  find_func(const char* name);
 static void         free_strings(void);
 static void         collect_strings(ast_node_t* node);
+static gen_result_t gen_number(ast_node_t* node);
+static gen_result_t gen_string(ast_node_t* node);
+static gen_result_t gen_ident(ast_node_t* node);
+static gen_result_t gen_binop(token_type_t op, gen_result_t left, gen_result_t right);
+static gen_result_t gen_binop_node(ast_node_t* node);
+static gen_result_t gen_func_call(ast_node_t* node);
+static void         gen_func_call_stmt(ast_node_t* node);
+static gen_result_t gen_assign(ast_node_t* node);
+static void         gen_assign_stmt(ast_node_t* node);
 static gen_result_t gen_expr(ast_node_t* node);
+static void         gen_return(ast_node_t* node);
 static void         gen_conditional(ast_node_t* node, char* cont_lab);
 static void         gen_stmt(ast_node_t* node);
-static gen_result_t gen_binop(token_type_t op, gen_result_t left, gen_result_t right);
 static void         gen_block(ast_node_t* node);
 static void         gen_func_def(ast_node_t* node);
 static void         gen_program(ast_node_t* node);
@@ -101,6 +110,8 @@ static void emit(const char* fmt, ...)
 static char* new_temp(void)
 {
     char* buf = malloc(20);
+    if (!buf)
+        ERROR_FATAL(NULL, 0, 0, "Memory allocation failed for temp variable");
     sprintf(buf, "%%t%d", ctx.temp_count++);
     return buf;
 }
@@ -108,6 +119,8 @@ static char* new_temp(void)
 static char* new_label(void)
 {
     char* buf = malloc(20);
+    if (!buf)
+        ERROR_FATAL(NULL, 0, 0, "Memory allocation failed for label");
     sprintf(buf, "@l%d", ctx.label_count++);
     return buf;
 }
@@ -119,7 +132,7 @@ static char str_to_qbe_type(const char* s)
         const char* name;
         char        qbe_type;
     } type_map[] = {{"int", 'l'}, {"float", 'd'}, {"string", 'l'}, {NULL, 0}};
-    if (!s) // Handle NULL type for variadic parameters
+    if (!s)
         return 'l';
     for (int i = 0; type_map[i].name; i++)
     {
@@ -133,8 +146,10 @@ static char str_to_qbe_type(const char* s)
 static void push_scope(void)
 {
     scope_t* new_scope = calloc(1, sizeof(scope_t));
-    new_scope->prev    = ctx.current_scope;
-    ctx.current_scope  = new_scope;
+    if (!new_scope)
+        ERROR_FATAL(NULL, 0, 0, "Memory allocation failed for scope");
+    new_scope->prev   = ctx.current_scope;
+    ctx.current_scope = new_scope;
 }
 
 static void free_scope(scope_t* scope)
@@ -160,7 +175,9 @@ static void pop_scope(void)
 
 static void add_sym(const char* name, size_t name_len, char* ptr, char vtype)
 {
-    sym_entry_t* e             = calloc(1, sizeof(sym_entry_t));
+    sym_entry_t* e = calloc(1, sizeof(sym_entry_t));
+    if (!e)
+        ERROR_FATAL(NULL, 0, 0, "Memory allocation failed for symbol");
     e->name                    = strndup(name, name_len);
     e->ptr                     = ptr;
     e->vtype                   = vtype;
@@ -175,9 +192,7 @@ static var_info_t find_sym(const char* name)
         for (sym_entry_t* e = s->entries; e; e = e->next)
         {
             if (strcmp(e->name, name) == 0)
-            {
                 return (var_info_t){e->ptr, e->vtype};
-            }
         }
     }
     ERROR_FATAL(NULL, 0, 0, "Undefined variable");
@@ -217,9 +232,7 @@ static void collect_strings(ast_node_t* node)
     {
     case NODE_PROGRAM:
         for (size_t i = 0; i < node->data.program.func_def_count; i++)
-        {
             collect_strings(&node->data.program.func_defs[i]);
-        }
         break;
     case NODE_FUNC_DEF:
         if (!node->data.func_def.is_declaration)
@@ -227,18 +240,14 @@ static void collect_strings(ast_node_t* node)
         break;
     case NODE_BLOCK:
         for (size_t i = 0; i < node->data.block.stmt_count; i++)
-        {
             collect_strings(&node->data.block.stmts[i]);
-        }
         break;
     case NODE_RETURN:
         collect_strings(node->data.return_stmt.expr);
         break;
     case NODE_FUNC_CALL:
         for (size_t i = 0; i < node->data.func_call.arg_count; i++)
-        {
             collect_strings(&node->data.func_call.args[i]);
-        }
         break;
     case NODE_ASSIGN:
         collect_strings(node->data.assign.value);
@@ -263,14 +272,18 @@ static void collect_strings(ast_node_t* node)
         for (str_info_t* si = ctx.strings; si; si = si->next)
         {
             if (si->len == len && memcmp(si->value, value, len) == 0)
-            {
                 return;
-            }
         }
         char* gname = malloc(10);
+        if (!gname)
+            ERROR_FATAL(NULL, 0, 0, "Memory allocation failed for string name");
         sprintf(gname, "$str%d", ctx.str_count++);
         str_info_t* new_si = calloc(1, sizeof(str_info_t));
-        new_si->value      = malloc(len);
+        if (!new_si)
+            ERROR_FATAL(NULL, 0, 0, "Memory allocation failed for string info");
+        new_si->value = malloc(len);
+        if (!new_si->value)
+            ERROR_FATAL(NULL, 0, 0, "Memory allocation failed for string value");
         memcpy(new_si->value, value, len);
         new_si->len   = len;
         new_si->gname = gname;
@@ -283,105 +296,62 @@ static void collect_strings(ast_node_t* node)
     }
 }
 
-static void gen_conditional(ast_node_t* node, char* cont_lab)
+static gen_result_t gen_number(ast_node_t* node)
 {
-    int manage_cont = (cont_lab == NULL);
-    if (manage_cont)
+    gen_result_t res = {NULL, 0};
+    if (node->data.number.lit_type == TOKEN_NLIT)
     {
-        cont_lab = new_label();
+        char* buf = malloc(32);
+        if (!buf)
+            ERROR_FATAL(NULL, 0, 0, "Memory allocation failed for number");
+        sprintf(buf, "%ld", node->data.number.value.i64);
+        res.val      = buf;
+        res.qbe_type = 'l';
     }
-
-    gen_result_t cond = gen_expr(node->type == NODE_IF ? node->data.if_stmt.condition
-                                                       : node->data.elseif_stmt.condition);
-    if (!cond.val)
+    else
     {
-        if (manage_cont)
-            free(cont_lab);
-        return;
+        char* buf = malloc(32);
+        if (!buf)
+            ERROR_FATAL(NULL, 0, 0, "Memory allocation failed for number");
+        sprintf(buf, "d_%g", node->data.number.value.f64);
+        res.val      = buf;
+        res.qbe_type = 'd';
     }
-    char* then_lab = new_label();
-    char* next_lab = new_label();
-    emit("jnz %s, %s, %s\n", cond.val, then_lab, next_lab);
-    free(cond.val);
-
-    emit("%s\n", then_lab);
-    gen_block(node->type == NODE_IF ? node->data.if_stmt.then_block
-                                    : node->data.elseif_stmt.then_block);
-    emit("jmp %s\n", cont_lab);
-
-    emit("%s\n", next_lab);
-    ast_node_t* else_block =
-        node->type == NODE_IF ? node->data.if_stmt.else_block : node->data.elseif_stmt.else_block;
-    if (else_block)
-    {
-        if (else_block->type == NODE_ELSEIF)
-        {
-            gen_conditional(else_block, cont_lab);
-        }
-        else if (else_block->type == NODE_ELSE)
-        {
-            gen_block(else_block->data.else_stmt.block);
-            emit("jmp %s\n", cont_lab);
-        }
-    }
-
-    if (manage_cont)
-    {
-        emit("%s\n", cont_lab);
-        free(cont_lab);
-    }
+    return res;
 }
 
-static void gen_stmt(ast_node_t* node)
+static gen_result_t gen_string(ast_node_t* node)
 {
-    if (!node)
-        return;
-    switch (node->type)
+    gen_result_t res   = {NULL, 0};
+    char*        value = node->data.string.value;
+    size_t       len   = node->data.string.len;
+    for (str_info_t* si = ctx.strings; si; si = si->next)
     {
-    case NODE_RETURN:
-    {
-        if (node->data.return_stmt.expr)
+        if (si->len == len && memcmp(si->value, value, len) == 0)
         {
-            gen_result_t val = gen_expr(node->data.return_stmt.expr);
-            if (val.val)
-            {
-                emit("ret %s\n", val.val);
-                free(val.val);
-            }
+            res.val = strdup(si->gname);
+            if (!res.val)
+                ERROR_FATAL(NULL, 0, 0, "Memory allocation failed for string");
+            res.qbe_type = 'l';
+            break;
         }
-        else
-        {
-            emit("ret\n");
-        }
-        break;
     }
-    case NODE_FUNC_CALL:
-    {
-        gen_result_t res = gen_expr(node);
-        if (res.val)
-            free(res.val);
-        break;
-    }
-    case NODE_ASSIGN:
-    {
-        gen_result_t res = gen_expr(node);
-        if (res.val)
-            free(res.val);
-        break;
-    }
-    case NODE_IF:
-        gen_conditional(node, NULL);
-        break;
-    case NODE_IMPORT:
-        // Imports should be handled during parsing (its not)
-        break;
-    case NODE_BLOCK:
-        gen_block(node);
-        break;
-    default:
-        ERROR_FATAL(NULL, 0, 0, "Unimplemented statement type");
-        break;
-    }
+    if (!res.val)
+        ERROR_FATAL(NULL, 0, 0, "String not collected");
+    return res;
+}
+
+static gen_result_t gen_ident(ast_node_t* node)
+{
+    gen_result_t res = {NULL, 0};
+    var_info_t   vi  = find_sym(node->data.ident.name);
+    if (!vi.ptr)
+        return res;
+    char* tmp = new_temp();
+    emit("%s =%c load%c %s\n", tmp, vi.vtype, vi.vtype, vi.ptr);
+    res.val      = tmp;
+    res.qbe_type = vi.vtype;
+    return res;
 }
 
 static gen_result_t gen_binop(token_type_t op, gen_result_t left, gen_result_t right)
@@ -389,18 +359,16 @@ static gen_result_t gen_binop(token_type_t op, gen_result_t left, gen_result_t r
     gen_result_t res = {NULL, 0};
     if (!left.val || !right.val)
         return res;
-
-    struct
+    static const struct
     {
         token_type_t token;
         const char*  opstr;
         int          is_comp;
-    } ops[] = {{TOKEN_PLUS, "add", 0},  {TOKEN_MINUS, "sub", 0},   {TOKEN_STAR, "mul", 0},
-               {TOKEN_SLASH, "div", 0}, {TOKEN_PERCENT, "rem", 0}, {TOKEN_EQ, "ceq", 1},
-               {TOKEN_NEQ, "cne", 1},   {TOKEN_LT, "slt", 1},      {TOKEN_LTE, "sle", 1},
-               {TOKEN_GT, "sgt", 1},    {TOKEN_GTE, "sge", 1},     {0, NULL, 0}};
-
-    const char* opstr   = NULL;
+    } ops[]           = {{TOKEN_PLUS, "add", 0},  {TOKEN_MINUS, "sub", 0},   {TOKEN_STAR, "mul", 0},
+                         {TOKEN_SLASH, "div", 0}, {TOKEN_PERCENT, "rem", 0}, {TOKEN_EQ, "ceq", 1},
+                         {TOKEN_NEQ, "cne", 1},   {TOKEN_LT, "slt", 1},      {TOKEN_LTE, "sle", 1},
+                         {TOKEN_GT, "sgt", 1},    {TOKEN_GTE, "sge", 1},     {0, NULL, 0}};
+    const char* opstr = NULL;
     int         is_comp = 0;
     for (int i = 0; ops[i].opstr; i++)
     {
@@ -418,10 +386,11 @@ static gen_result_t gen_binop(token_type_t op, gen_result_t left, gen_result_t r
         free(right.val);
         return res;
     }
-
     char  otype   = left.qbe_type;
     char* tmp     = new_temp();
     char* full_op = malloc(strlen(opstr) + 2);
+    if (!full_op)
+        ERROR_FATAL(NULL, 0, 0, "Memory allocation failed for operator");
     sprintf(full_op, "%s%c", opstr, otype);
     if (is_comp)
     {
@@ -440,182 +409,257 @@ static gen_result_t gen_binop(token_type_t op, gen_result_t left, gen_result_t r
     return res;
 }
 
-static gen_result_t gen_expr(ast_node_t* node)
+static gen_result_t gen_binop_node(ast_node_t* node)
 {
-    gen_result_t res = {NULL, 0};
-    if (!node)
-        return res;
+    gen_result_t left  = gen_expr(node->data.binop.left);
+    gen_result_t right = gen_expr(node->data.binop.right);
+    return gen_binop(node->data.binop.op, left, right);
+}
 
-    switch (node->type)
+static gen_result_t gen_func_call(ast_node_t* node)
+{
+    gen_result_t res  = {NULL, 0};
+    char*        name = strndup(node->data.func_call.name, node->data.func_call.name_len);
+    if (!name)
+        ERROR_FATAL(NULL, 0, 0, "Memory allocation failed for function name");
+    ast_node_t* func        = find_func(name);
+    char        ret_type    = func ? str_to_qbe_type(func->data.func_def.return_type) : 'l';
+    bool        is_variadic = false;
+    if (func)
     {
-    case NODE_NUMBER:
-    {
-        if (node->data.number.lit_type == TOKEN_NLIT)
+        for (param_node_t* param = func->data.func_def.params; param; param = param->next)
         {
-            char* buf = malloc(32);
-            sprintf(buf, "%ld", node->data.number.value.i64);
-            res.val      = buf;
-            res.qbe_type = 'l';
-        }
-        else
-        {
-            char* buf = malloc(32);
-            sprintf(buf, "d_%g", node->data.number.value.f64);
-            res.val      = buf;
-            res.qbe_type = 'd';
-        }
-        break;
-    }
-    case NODE_STRING:
-    {
-        char*  value = node->data.string.value;
-        size_t len   = node->data.string.len;
-        for (str_info_t* si = ctx.strings; si; si = si->next)
-        {
-            if (si->len == len && memcmp(si->value, value, len) == 0)
+            if (param->is_variadic)
             {
-                res.val      = strdup(si->gname);
-                res.qbe_type = 'l';
+                is_variadic = true;
                 break;
             }
         }
-        if (!res.val)
-            ERROR_FATAL(NULL, 0, 0, "String not collected");
-        break;
     }
-    case NODE_IDENT:
+    param_node_t* param       = func ? func->data.func_def.params : NULL;
+    size_t        param_count = 0;
+    for (param_node_t* p = param; p && !p->is_variadic; p = p->next)
+        param_count++;
+    gen_result_t* args = calloc(node->data.func_call.arg_count, sizeof(gen_result_t));
+    if (!args)
+        ERROR_FATAL(NULL, 0, 0, "Memory allocation failed for arguments");
+    for (size_t i = 0; i < node->data.func_call.arg_count; i++)
     {
-        var_info_t vi = find_sym(node->data.ident.name);
-        if (!vi.ptr)
-            break;
-        res.val      = strdup(vi.ptr);
-        res.qbe_type = vi.vtype;
-        break;
+        args[i] = gen_expr(&node->data.func_call.args[i]);
+        if (!args[i].val)
+        {
+            for (size_t j = 0; j < i; j++)
+                free(args[j].val);
+            free(args);
+            free(name);
+            return res;
+        }
     }
-    case NODE_BINOP:
+    char* tmp = NULL;
+    if (ret_type != 0)
     {
-        gen_result_t left  = gen_expr(node->data.binop.left);
-        gen_result_t right = gen_expr(node->data.binop.right);
-        res                = gen_binop(node->data.binop.op, left, right);
-        break;
+        tmp = new_temp();
+        emit("%s =%c call $%s (", tmp, ret_type, name);
     }
-    case NODE_FUNC_CALL:
+    else
     {
-        char*       name        = strndup(node->data.func_call.name, node->data.func_call.name_len);
-        ast_node_t* func        = find_func(name);
-        char        ret_type    = func ? str_to_qbe_type(func->data.func_def.return_type) : 'l';
-        bool        is_variadic = false;
-        if (func)
-        {
-            for (param_node_t* param = func->data.func_def.params; param; param = param->next)
-            {
-                if (param->is_variadic)
-                {
-                    is_variadic = true;
-                    break;
-                }
-            }
-        }
-        char* tmp = NULL;
-        if (ret_type != 0)
-        {
-            tmp = new_temp();
-            emit("%s =%c call $%s (", tmp, ret_type, name);
-        }
-        else
-        {
-            emit("call $%s (", name);
-        }
-        param_node_t* param       = func ? func->data.func_def.params : NULL;
-        size_t        param_count = 0;
-        for (param_node_t* p = param; p && !p->is_variadic; p = p->next)
-            param_count++;
-
-        for (size_t i = 0; i < node->data.func_call.arg_count; i++)
-        {
-            gen_result_t arg = gen_expr(&node->data.func_call.args[i]);
-            if (!arg.val)
-            {
-                free(name);
-                if (tmp)
-                    free(tmp);
-                return res;
-            }
-            char ptype =
-                (param && i < param_count && !is_variadic) ? str_to_qbe_type(param->type) : 'l';
-            emit("%c %s", ptype, arg.val);
-            if (i < node->data.func_call.arg_count - 1)
-                emit(", ");
-            free(arg.val);
-            if (param && i < param_count - 1)
-                param = param->next;
-        }
-        emit(")\n");
-        free(name);
-        if (ret_type != 0)
-        {
-            res.val      = tmp;
-            res.qbe_type = ret_type;
-        }
-        break;
+        emit("call $%s (", name);
     }
-    case NODE_ASSIGN:
+    for (size_t i = 0; i < node->data.func_call.arg_count; i++)
     {
-        char*        name = strndup(node->data.assign.name, node->data.assign.name_len);
-        gen_result_t val  = {NULL, 0};
-        if (node->data.assign.value)
-        {
-            val = gen_expr(node->data.assign.value);
-            if (!val.val)
-            {
-                free(name);
-                return res;
-            }
-        }
-        if (node->data.assign.type)
-        {
-            char  vtype      = str_to_qbe_type(node->data.assign.type);
-            char* ptr        = new_temp();
-            int   alloc_size = (vtype == 'w' || vtype == 's') ? 4 : 8;
-            emit("%s =l alloc%d\n", ptr, alloc_size);
-            add_sym(name, node->data.assign.name_len, ptr, vtype);
-            if (node->data.assign.value)
-            {
-                emit("store%c %s, %s\n", vtype, ptr, val.val);
-                res.val      = strdup(val.val);
-                res.qbe_type = vtype;
-            }
-            else
-            {
-                emit("store%c %s, 0\n", vtype, ptr);
-                res.val      = strdup("0");
-                res.qbe_type = vtype;
-            }
-        }
-        else
-        {
-            var_info_t vi = find_sym(name);
-            if (!vi.ptr)
-            {
-                free(name);
-                if (val.val)
-                    free(val.val);
-                break;
-            }
-            emit("store%c %s, %s\n", vi.vtype, vi.ptr, val.val);
-            res.val      = strdup(val.val);
-            res.qbe_type = vi.vtype;
-        }
-        free(name);
-        if (val.val)
-            free(val.val);
-        break;
+        char ptype =
+            (param && i < param_count && !is_variadic) ? str_to_qbe_type(param->type) : 'l';
+        emit("%c %s", ptype, args[i].val);
+        if (i < node->data.func_call.arg_count - 1)
+            emit(", ");
+        free(args[i].val);
+        if (param && i < param_count - 1)
+            param = param->next;
     }
-    default:
-        ERROR_FATAL(NULL, 0, 0, "Unimplemented expression type");
-        break;
+    emit(")\n");
+    free(args);
+    free(name);
+    if (ret_type != 0)
+    {
+        res.val      = tmp;
+        res.qbe_type = ret_type;
     }
     return res;
+}
+
+static void gen_func_call_stmt(ast_node_t* node)
+{
+    gen_result_t res = gen_func_call(node);
+    if (res.val)
+        free(res.val);
+}
+
+static gen_result_t gen_assign(ast_node_t* node)
+{
+    gen_result_t res  = {NULL, 0};
+    char*        name = strndup(node->data.assign.name, node->data.assign.name_len);
+    if (!name)
+        ERROR_FATAL(NULL, 0, 0, "Memory allocation failed for variable name");
+    gen_result_t val = {NULL, 0};
+    if (node->data.assign.value)
+    {
+        val = gen_expr(node->data.assign.value);
+        if (!val.val)
+        {
+            free(name);
+            return res;
+        }
+    }
+    if (node->data.assign.type)
+    {
+        char  vtype      = str_to_qbe_type(node->data.assign.type);
+        char* ptr        = new_temp();
+        int   alloc_size = (vtype == 'w' || vtype == 's') ? 4 : 8;
+        emit("%s =l alloc%d 1\n", ptr, alloc_size);
+        add_sym(name, node->data.assign.name_len, ptr, vtype);
+        if (node->data.assign.value)
+        {
+            emit("store%c %s, %s\n", vtype, val.val, ptr);
+            res.val = strdup(val.val);
+            if (!res.val)
+                ERROR_FATAL(NULL, 0, 0, "Memory allocation failed for result");
+            res.qbe_type = vtype;
+        }
+        else
+        {
+            emit("store%c 0, %s\n", vtype, ptr);
+            res.val = strdup("0");
+            if (!res.val)
+                ERROR_FATAL(NULL, 0, 0, "Memory allocation failed for result");
+            res.qbe_type = vtype;
+        }
+    }
+    else
+    {
+        var_info_t vi = find_sym(name);
+        if (!vi.ptr)
+        {
+            free(name);
+            if (val.val)
+                free(val.val);
+            return res;
+        }
+        emit("store%c %s, %s\n", vi.vtype, val.val, vi.ptr);
+        res.val = strdup(val.val);
+        if (!res.val)
+            ERROR_FATAL(NULL, 0, 0, "Memory allocation failed for result");
+        res.qbe_type = vi.vtype;
+    }
+    free(name);
+    if (val.val)
+        free(val.val);
+    return res;
+}
+
+static void gen_assign_stmt(ast_node_t* node)
+{
+    gen_result_t res = gen_assign(node);
+    if (res.val)
+        free(res.val);
+}
+
+static gen_result_t gen_expr(ast_node_t* node)
+{
+    if (!node)
+        return (gen_result_t){NULL, 0};
+    typedef gen_result_t (*expr_handler_t)(ast_node_t*);
+    static const expr_handler_t handlers[] = {
+        [NODE_NUMBER] = gen_number,    [NODE_STRING] = gen_string,       [NODE_IDENT] = gen_ident,
+        [NODE_BINOP] = gen_binop_node, [NODE_FUNC_CALL] = gen_func_call, [NODE_ASSIGN] = gen_assign,
+    };
+    if (node->type < sizeof(handlers) / sizeof(handlers[0]) && handlers[node->type])
+        return handlers[node->type](node);
+    ERROR_FATAL(NULL, 0, 0, "Unimplemented expression type");
+    return (gen_result_t){NULL, 0};
+}
+
+static void gen_return(ast_node_t* node)
+{
+    if (node->data.return_stmt.expr)
+    {
+        gen_result_t val = gen_expr(node->data.return_stmt.expr);
+        if (val.val)
+        {
+            emit("ret %s\n", val.val);
+            free(val.val);
+        }
+    }
+    else
+    {
+        emit("ret\n");
+    }
+}
+
+static void gen_conditional(ast_node_t* node, char* cont_lab)
+{
+    int manage_cont = (cont_lab == NULL);
+    if (manage_cont)
+        cont_lab = new_label();
+    gen_result_t cond = gen_expr(node->type == NODE_IF ? node->data.if_stmt.condition
+                                                       : node->data.elseif_stmt.condition);
+    if (!cond.val)
+    {
+        if (manage_cont)
+            free(cont_lab);
+        return;
+    }
+    char* then_lab = new_label();
+    char* next_lab = new_label();
+    emit("jnz %s, %s, %s\n", cond.val, then_lab, next_lab);
+    free(cond.val);
+    emit("%s\n", then_lab);
+    gen_block(node->type == NODE_IF ? node->data.if_stmt.then_block
+                                    : node->data.elseif_stmt.then_block);
+    emit("jmp %s\n", cont_lab);
+    emit("%s\n", next_lab);
+    ast_node_t* else_block =
+        node->type == NODE_IF ? node->data.if_stmt.else_block : node->data.elseif_stmt.else_block;
+    if (else_block)
+    {
+        if (else_block->type == NODE_ELSEIF)
+            gen_conditional(else_block, cont_lab);
+        else if (else_block->type == NODE_ELSE)
+        {
+            gen_block(else_block->data.else_stmt.block);
+            emit("jmp %s\n", cont_lab);
+        }
+    }
+    if (manage_cont)
+    {
+        emit("%s\n", cont_lab);
+        free(cont_lab);
+    }
+}
+
+static void gen_stmt(ast_node_t* node)
+{
+    if (!node)
+        return;
+    typedef void (*stmt_handler_t)(ast_node_t*);
+    static const stmt_handler_t handlers[] = {
+        [NODE_RETURN]    = gen_return,
+        [NODE_FUNC_CALL] = gen_func_call_stmt,
+        [NODE_ASSIGN]    = gen_assign_stmt,
+        [NODE_BLOCK]     = gen_block,
+    };
+    if (node->type == NODE_IF)
+    {
+        gen_conditional(node, NULL);
+        return;
+    }
+    if (node->type == NODE_IMPORT)
+        return;
+    if (node->type < sizeof(handlers) / sizeof(handlers[0]) && handlers[node->type])
+    {
+        handlers[node->type](node);
+        return;
+    }
+    ERROR_FATAL(NULL, 0, 0, "Unimplemented statement type");
 }
 
 static void gen_block(ast_node_t* node)
@@ -624,9 +668,7 @@ static void gen_block(ast_node_t* node)
         return;
     push_scope();
     for (size_t i = 0; i < node->data.block.stmt_count; i++)
-    {
         gen_stmt(&node->data.block.stmts[i]);
-    }
     pop_scope();
 }
 
@@ -636,13 +678,12 @@ static void gen_func_def(ast_node_t* node)
         return;
     if (node->data.func_def.is_declaration)
         return;
-
-    char* name     = strndup(node->data.func_def.name, node->data.func_def.name_len);
-    char  ret_type = str_to_qbe_type(node->data.func_def.return_type);
+    char* name = strndup(node->data.func_def.name, node->data.func_def.name_len);
+    if (!name)
+        ERROR_FATAL(NULL, 0, 0, "Memory allocation failed for function name");
+    char ret_type = str_to_qbe_type(node->data.func_def.return_type);
     if (strcmp(name, "main") == 0)
-    {
         emit("export ");
-    }
     emit("function ");
     if (ret_type != 0)
         emit("%c ", ret_type);
@@ -667,14 +708,17 @@ static void gen_func_def(ast_node_t* node)
     }
     emit(") {\n@start\n");
     free(name);
-
     push_scope();
     param = node->data.func_def.params;
     while (param && !param->is_variadic)
     {
         char  ptype      = str_to_qbe_type(param->type);
         char* param_name = strndup(param->name, param->name_len);
-        char* param_ptr  = malloc(param->name_len + 2);
+        if (!param_name)
+            ERROR_FATAL(NULL, 0, 0, "Memory allocation failed for parameter name");
+        char* param_ptr = malloc(param->name_len + 2);
+        if (!param_ptr)
+            ERROR_FATAL(NULL, 0, 0, "Memory allocation failed for parameter pointer");
         sprintf(param_ptr, "%%%.*s", (int) param->name_len, param->name);
         add_sym(param->name, param->name_len, param_ptr, ptype);
         free(param_name);
@@ -690,9 +734,7 @@ static void gen_program(ast_node_t* node)
     if (!node || node->type != NODE_PROGRAM)
         return;
     for (size_t i = 0; i < node->data.program.func_def_count; i++)
-    {
         gen_func_def(&node->data.program.func_defs[i]);
-    }
 }
 
 static void free_context(void)
@@ -706,9 +748,7 @@ static void free_context(void)
         ctx.funcs = next;
     }
     while (ctx.current_scope)
-    {
         pop_scope();
-    }
     ctx.temp_count  = 0;
     ctx.label_count = 0;
     ctx.str_count   = 0;
@@ -721,12 +761,14 @@ int codegen_generate(ast_node_t* root, const char* output_path)
         ERROR_FATAL(NULL, 0, 0, "Root node must be a program");
         return 1;
     }
-
     char* qbe_path = malloc(strlen(output_path) + 5);
+    if (!qbe_path)
+        ERROR_FATAL(NULL, 0, 0, "Memory allocation failed for QBE path");
     char* asm_path = malloc(strlen(output_path) + 5);
+    if (!asm_path)
+        ERROR_FATAL(NULL, 0, 0, "Memory allocation failed for ASM path");
     sprintf(qbe_path, "%s.qbe", output_path);
     sprintf(asm_path, "%s.asm", output_path);
-
     ctx.out = fopen(qbe_path, "w");
     if (!ctx.out)
     {
@@ -735,49 +777,47 @@ int codegen_generate(ast_node_t* root, const char* output_path)
         free(asm_path);
         return 1;
     }
-
     collect_strings(root);
-
     for (str_info_t* si = ctx.strings; si; si = si->next)
     {
         emit("data %s = { ", si->gname);
         for (size_t j = 0; j < si->len; j++)
-        {
             emit("b %d, ", (unsigned char) si->value[j]);
-        }
         emit("b 0 }\n");
     }
-
     for (size_t i = 0; i < root->data.program.func_def_count; i++)
     {
         func_entry_t* fe = calloc(1, sizeof(func_entry_t));
-        fe->name         = strndup(root->data.program.func_defs[i].data.func_def.name,
-                                   root->data.program.func_defs[i].data.func_def.name_len);
-        fe->node         = &root->data.program.func_defs[i];
-        fe->next         = ctx.funcs;
-        ctx.funcs        = fe;
+        if (!fe)
+            ERROR_FATAL(NULL, 0, 0, "Memory allocation failed for function entry");
+        fe->name = strndup(root->data.program.func_defs[i].data.func_def.name,
+                           root->data.program.func_defs[i].data.func_def.name_len);
+        if (!fe->name)
+            ERROR_FATAL(NULL, 0, 0, "Memory allocation failed for function name");
+        fe->node  = &root->data.program.func_defs[i];
+        fe->next  = ctx.funcs;
+        ctx.funcs = fe;
     }
-
     gen_program(root);
-
     fclose(ctx.out);
-    ctx.out = NULL;
-
+    ctx.out       = NULL;
     char* qbe_cmd = malloc(strlen(qbe_path) + strlen(asm_path) + 20);
+    if (!qbe_cmd)
+        ERROR_FATAL(NULL, 0, 0, "Memory allocation failed for QBE command");
     sprintf(qbe_cmd, "qbe -o %s %s", asm_path, qbe_path);
     int qbe_result = system(qbe_cmd);
     free(qbe_cmd);
     if (qbe_result != 0)
     {
         ERROR_FATAL(NULL, 0, 0, "QBE failed to generate assembly");
-        unlink(qbe_path);
         free_context();
         free(qbe_path);
         free(asm_path);
         return 1;
     }
-
     char* cc_cmd = malloc(strlen(asm_path) + strlen(output_path) + 30);
+    if (!cc_cmd)
+        ERROR_FATAL(NULL, 0, 0, "Memory allocation failed for CC command");
     sprintf(cc_cmd, "clang -o %s %s", output_path, asm_path);
     int cc_result = system(cc_cmd);
     free(cc_cmd);
@@ -791,10 +831,8 @@ int codegen_generate(ast_node_t* root, const char* output_path)
         free(asm_path);
         return 1;
     }
-
-    unlink(qbe_path);
-    unlink(asm_path);
-
+    // unlink(qbe_path);
+    // unlink(asm_path);
     free_context();
     free(qbe_path);
     free(asm_path);

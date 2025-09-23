@@ -15,9 +15,9 @@ add_executable(cmicro
 
 target_include_directories(cmicro PRIVATE include)
 
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Werror -g -fno-rtti -fno-exceptions")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Werror -Wextra")
 option(USE_SANITIZERS "Enable sanitizers" ON)
 if (USE_SANITIZERS)
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=undefined -fsanitize=address")
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g -fsanitize=undefined -fsanitize=address")
     target_link_options(cmicro PRIVATE -fsanitize=undefined -fsanitize=address)
 endif()
