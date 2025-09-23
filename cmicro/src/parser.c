@@ -1076,7 +1076,60 @@ static ast_node_t* parse_statement(parser_t* parser)
         return NULL;
     token_t tok = parser_peek(parser);
 
-    if (tok.type == TOKEN_KEYWORD && strncmp(tok.lexeme, "return", tok.len) == 0)
+    if (tok.type == TOKEN_LBRACE)
+    {
+        parser_advance(parser);
+        ast_node_t* stmts      = NULL;
+        size_t      stmt_count = 0;
+        size_t      capacity   = 0;
+
+        while (parser_peek(parser).type != TOKEN_RBRACE)
+        {
+            ast_node_t* stmt = parse_statement(parser);
+            if (error)
+            {
+                for (size_t i = 0; i < stmt_count; i++)
+                    ast_free_internal(&stmts[i]);
+                free(stmts);
+                return NULL;
+            }
+            if (!stmt)
+                break;
+
+            if (stmt_count >= capacity)
+            {
+                capacity              = capacity ? capacity * 2 : 8;
+                ast_node_t* new_stmts = (ast_node_t*) realloc(stmts, capacity * sizeof(ast_node_t));
+                if (!new_stmts)
+                {
+                    ERROR_FATAL("", 0, 0, "Memory allocation failed for block statements");
+                    error = true;
+                    ast_free(stmt);
+                    for (size_t i = 0; i < stmt_count; i++)
+                        ast_free_internal(&stmts[i]);
+                    free(stmts);
+                    return NULL;
+                }
+                stmts = new_stmts;
+            }
+
+            stmts[stmt_count++] = *stmt;
+            free(stmt);
+        }
+
+        if (parser_peek(parser).type != TOKEN_RBRACE)
+        {
+            parser_error(parser, "Expected '}' to close block");
+            for (size_t i = 0; i < stmt_count; i++)
+                ast_free_internal(&stmts[i]);
+            free(stmts);
+            return NULL;
+        }
+        parser_advance(parser);
+
+        return ast_create_block(stmts, stmt_count);
+    }
+    else if (tok.type == TOKEN_KEYWORD && strncmp(tok.lexeme, "return", tok.len) == 0)
     {
         parser_advance(parser);
         ast_node_t* expr = parse_expression(parser, 0);

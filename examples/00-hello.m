@@ -4,6 +4,15 @@ Macro Programming languge
 0. Hello World
 */
 
+void test()
+{
+    printf("this is in the function block/scope\n");
+    {
+        printf("this is inside another block\n");
+    }
+    printf("fucntion again\n");
+}
+
 int add(int a, int b)
 {
     return a + b;
