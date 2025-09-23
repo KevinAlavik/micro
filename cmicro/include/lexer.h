@@ -40,13 +40,14 @@ typedef enum token_type
     TOKEN_GTE,     // >=
 
     /* Symbols / punctuation */
-    TOKEN_LPAREN, // (
-    TOKEN_RPAREN, // )
-    TOKEN_LBRACE, // {
-    TOKEN_RBRACE, // }
-    TOKEN_SEMI,   // ;
-    TOKEN_COMMA,  // ,
-    TOKEN_DOT,    // .
+    TOKEN_LPAREN,   // (
+    TOKEN_RPAREN,   // )
+    TOKEN_LBRACE,   // {
+    TOKEN_RBRACE,   // }
+    TOKEN_SEMI,     // ;
+    TOKEN_COMMA,    // ,
+    TOKEN_DOT,      // .
+    TOKEN_ELLIPSIS, // ...
 
     /* Specials */
     TOKEN_ERROR = 0xdeadbeef,

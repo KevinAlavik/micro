@@ -42,11 +42,11 @@ typedef struct
 } op_t;
 
 static const op_t operators[] = {
-    {"+", TOKEN_PLUS},    {"-", TOKEN_MINUS},  {"*", TOKEN_STAR},   {"/", TOKEN_SLASH},
-    {"%", TOKEN_PERCENT}, {"==", TOKEN_EQ},    {"!=", TOKEN_NEQ},   {"=", TOKEN_ASSIGN},
-    {"<=", TOKEN_LTE},    {">=", TOKEN_GTE},   {"<", TOKEN_LT},     {">", TOKEN_GT},
-    {"(", TOKEN_LPAREN},  {")", TOKEN_RPAREN}, {"{", TOKEN_LBRACE}, {"}", TOKEN_RBRACE},
-    {";", TOKEN_SEMI},    {",", TOKEN_COMMA},  {".", TOKEN_DOT},
+    {"+", TOKEN_PLUS},    {"-", TOKEN_MINUS},  {"*", TOKEN_STAR},       {"/", TOKEN_SLASH},
+    {"%", TOKEN_PERCENT}, {"==", TOKEN_EQ},    {"!=", TOKEN_NEQ},       {"=", TOKEN_ASSIGN},
+    {"<=", TOKEN_LTE},    {">=", TOKEN_GTE},   {"<", TOKEN_LT},         {">", TOKEN_GT},
+    {"(", TOKEN_LPAREN},  {")", TOKEN_RPAREN}, {"{", TOKEN_LBRACE},     {"}", TOKEN_RBRACE},
+    {";", TOKEN_SEMI},    {",", TOKEN_COMMA},  {"...", TOKEN_ELLIPSIS}, {".", TOKEN_DOT},
 };
 static const size_t op_count = sizeof(operators) / sizeof(operators[0]);
 

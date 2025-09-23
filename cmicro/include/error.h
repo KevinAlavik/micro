@@ -26,7 +26,6 @@ typedef struct
     error_level_t level;   // severity
 } error_t;
 
-void error_init(const char* source);
 void report_error(const error_t* err);
 
 #define ERROR_FATAL(src, line, col, msg) report_error(&(error_t){src, msg, line, col, ERROR_FATAL})

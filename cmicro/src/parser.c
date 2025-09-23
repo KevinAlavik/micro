@@ -5,6 +5,7 @@
  * Licensed under the Apache License, Version 2.0
  */
 
+#define _GNU_SOURCE
 #include <parser.h>
 #include <stdlib.h>
 #include <error.h>
@@ -194,7 +195,7 @@ static ast_node_t* ast_create_return(ast_node_t* expr)
 }
 
 static ast_node_t* ast_create_func_def(char* name, size_t name_len, char* return_type,
-                                       param_node_t* params, ast_node_t* root)
+                                       param_node_t* params, ast_node_t* root, bool is_declaration)
 {
     if (error)
         return NULL;
@@ -205,12 +206,13 @@ static ast_node_t* ast_create_func_def(char* name, size_t name_len, char* return
         error = true;
         return NULL;
     }
-    node->type                      = NODE_FUNC_DEF;
-    node->data.func_def.name        = name;
-    node->data.func_def.name_len    = name_len;
-    node->data.func_def.return_type = return_type;
-    node->data.func_def.params      = params;
-    node->data.func_def.root        = root;
+    node->type                         = NODE_FUNC_DEF;
+    node->data.func_def.name           = name;
+    node->data.func_def.name_len       = name_len;
+    node->data.func_def.return_type    = return_type;
+    node->data.func_def.params         = params;
+    node->data.func_def.root           = root;
+    node->data.func_def.is_declaration = is_declaration;
     return node;
 }
 
@@ -333,10 +335,11 @@ static param_node_t* ast_create_param(char* name, size_t name_len, char* type)
         error = true;
         return NULL;
     }
-    param->name     = name;
-    param->name_len = name_len;
-    param->type     = type;
-    param->next     = NULL;
+    param->name        = name;
+    param->name_len    = name_len;
+    param->type        = type;
+    param->next        = NULL;
+    param->is_variadic = false;
     return param;
 }
 
@@ -386,14 +389,14 @@ static ast_node_t* parse_factor(parser_t* parser)
     else if (tok.type == TOKEN_SLIT)
     {
         parser_advance(parser);
-        char* str = strndup(tok.lexeme, tok.len);
+        char* str = strndup(tok.value.str.x, tok.value.str.y);
         if (!str)
         {
             ERROR_FATAL("", 0, 0, "Memory allocation failed for string");
             error = true;
             return NULL;
         }
-        return ast_create_string(str, tok.len);
+        return ast_create_string(str, tok.value.str.y);
     }
     else if (tok.type == TOKEN_IDENT)
     {
@@ -483,6 +486,46 @@ static param_node_t* parse_param_list(parser_t* parser)
 
     while (parser_peek(parser).type != TOKEN_RPAREN)
     {
+        if (parser_peek(parser).type == TOKEN_ELLIPSIS)
+        {
+            parser_advance(parser);
+            param_node_t* param = ast_create_param(NULL, 0, NULL);
+            if (!param)
+            {
+                while (head)
+                {
+                    param_node_t* next = head->next;
+                    free(head->name);
+                    free(head->type);
+                    free(head);
+                    head = next;
+                }
+                return NULL;
+            }
+            param->is_variadic = true;
+            if (!head)
+                head = tail = param;
+            else
+            {
+                tail->next = param;
+                tail       = param;
+            }
+            if (parser_peek(parser).type == TOKEN_COMMA)
+            {
+                parser_error(parser, "Variadic parameter must be the last in the list");
+                while (head)
+                {
+                    param_node_t* next = head->next;
+                    free(head->name);
+                    free(head->type);
+                    free(head);
+                    head = next;
+                }
+                return NULL;
+            }
+            break;
+        }
+
         token_t type_tok = parser_peek(parser);
         if (type_tok.type != TOKEN_KEYWORD)
         {
@@ -638,9 +681,49 @@ static ast_node_t* parse_func_def(parser_t* parser)
         return NULL;
     }
 
+    char* return_type = strndup(return_type_tok.lexeme, return_type_tok.len);
+    if (!return_type)
+    {
+        ERROR_FATAL("", 0, 0, "Memory allocation failed for return type");
+        error = true;
+        while (params)
+        {
+            param_node_t* next = params->next;
+            free(params->name);
+            free(params->type);
+            free(params);
+            params = next;
+        }
+        return NULL;
+    }
+    char* name = strndup(name_tok.lexeme, name_tok.len);
+    if (!name)
+    {
+        free(return_type);
+        ERROR_FATAL("", 0, 0, "Memory allocation failed for function name");
+        error = true;
+        while (params)
+        {
+            param_node_t* next = params->next;
+            free(params->name);
+            free(params->type);
+            free(params);
+            params = next;
+        }
+        return NULL;
+    }
+
+    if (parser_peek(parser).type == TOKEN_SEMI)
+    {
+        parser_advance(parser);
+        return ast_create_func_def(name, name_tok.len, return_type, params, NULL, true);
+    }
+
     if (parser_peek(parser).type != TOKEN_LBRACE)
     {
         parser_error(parser, "Expected '{' for function body");
+        free(name);
+        free(return_type);
         while (params)
         {
             param_node_t* next = params->next;
@@ -662,6 +745,8 @@ static ast_node_t* parse_func_def(parser_t* parser)
         ast_node_t* stmt = parse_statement(parser);
         if (error)
         {
+            free(name);
+            free(return_type);
             for (size_t i = 0; i < stmt_count; i++)
                 ast_free_internal(&stmts[i]);
             free(stmts);
@@ -687,6 +772,8 @@ static ast_node_t* parse_func_def(parser_t* parser)
                 ERROR_FATAL("", 0, 0, "Memory allocation failed for statements");
                 error = true;
                 ast_free(stmt);
+                free(name);
+                free(return_type);
                 for (size_t i = 0; i < stmt_count; i++)
                     ast_free_internal(&stmts[i]);
                 free(stmts);
@@ -710,6 +797,8 @@ static ast_node_t* parse_func_def(parser_t* parser)
     if (parser_peek(parser).type != TOKEN_RBRACE)
     {
         parser_error(parser, "Expected '}' to close function body");
+        free(name);
+        free(return_type);
         for (size_t i = 0; i < stmt_count; i++)
             ast_free_internal(&stmts[i]);
         free(stmts);
@@ -724,44 +813,6 @@ static ast_node_t* parse_func_def(parser_t* parser)
         return NULL;
     }
     parser_advance(parser);
-
-    char* return_type = strndup(return_type_tok.lexeme, return_type_tok.len);
-    if (!return_type)
-    {
-        ERROR_FATAL("", 0, 0, "Memory allocation failed for return type");
-        error = true;
-        for (size_t i = 0; i < stmt_count; i++)
-            ast_free_internal(&stmts[i]);
-        free(stmts);
-        while (params)
-        {
-            param_node_t* next = params->next;
-            free(params->name);
-            free(params->type);
-            free(params);
-            params = next;
-        }
-        return NULL;
-    }
-    char* name = strndup(name_tok.lexeme, name_tok.len);
-    if (!name)
-    {
-        free(return_type);
-        ERROR_FATAL("", 0, 0, "Memory allocation failed for function name");
-        error = true;
-        for (size_t i = 0; i < stmt_count; i++)
-            ast_free_internal(&stmts[i]);
-        free(stmts);
-        while (params)
-        {
-            param_node_t* next = params->next;
-            free(params->name);
-            free(params->type);
-            free(params);
-            params = next;
-        }
-        return NULL;
-    }
 
     ast_node_t* block = ast_create_block(stmts, stmt_count);
     if (!block)
@@ -782,7 +833,7 @@ static ast_node_t* parse_func_def(parser_t* parser)
         return NULL;
     }
 
-    return ast_create_func_def(name, name_tok.len, return_type, params, block);
+    return ast_create_func_def(name, name_tok.len, return_type, params, block, false);
 }
 
 static ast_node_t* parse_func_call(parser_t* parser)
@@ -1232,10 +1283,6 @@ static ast_node_t* parse_statement(parser_t* parser)
 
         return ast_create_import(module);
     }
-    else if (tok.type == TOKEN_KEYWORD && strncmp(tok.lexeme, "if", tok.len) == 0)
-    {
-        return parse_if_statement(parser);
-    }
     else if (tok.type == TOKEN_KEYWORD)
     {
         token_t type_tok = parser_advance(parser);
@@ -1355,7 +1402,7 @@ ast_node_t* ast_gen(token_t* tokens)
 
     while (parser_peek(&parser).type != TOKEN_EOF)
     {
-        ast_node_t* func_def = parse_statement(&parser);
+        ast_node_t* stmt = parse_statement(&parser);
         if (error)
         {
             for (size_t i = 0; i < func_def_count; i++)
@@ -1363,8 +1410,18 @@ ast_node_t* ast_gen(token_t* tokens)
             free(func_defs);
             return NULL;
         }
-        if (!func_def)
+        if (!stmt)
             break;
+
+        if (stmt->type != NODE_FUNC_DEF && stmt->type != NODE_IMPORT)
+        {
+            parser_error(&parser, "Only function definitions and imports are allowed at top level");
+            ast_free(stmt);
+            for (size_t i = 0; i < func_def_count; i++)
+                ast_free_internal(&func_defs[i]);
+            free(func_defs);
+            return NULL;
+        }
 
         if (func_def_count >= capacity)
         {
@@ -1375,7 +1432,7 @@ ast_node_t* ast_gen(token_t* tokens)
             {
                 ERROR_FATAL("", 0, 0, "Memory allocation failed for function definitions");
                 error = true;
-                ast_free(func_def);
+                ast_free(stmt);
                 for (size_t i = 0; i < func_def_count; i++)
                     ast_free_internal(&func_defs[i]);
                 free(func_defs);
@@ -1384,8 +1441,8 @@ ast_node_t* ast_gen(token_t* tokens)
             func_defs = new_func_defs;
         }
 
-        func_defs[func_def_count++] = *func_def;
-        free(func_def);
+        func_defs[func_def_count++] = *stmt;
+        free(stmt);
     }
 
     if (parser_peek(&parser).type != TOKEN_EOF)
@@ -1402,6 +1459,8 @@ ast_node_t* ast_gen(token_t* tokens)
 
 static void ast_free_internal(ast_node_t* node)
 {
+    if (!node)
+        return;
     switch (node->type)
     {
     case NODE_BINOP:

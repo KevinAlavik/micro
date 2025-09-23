@@ -9,6 +9,7 @@
 #define _CMICRO_PARSER_H
 
 #include <lexer.h>
+#include <stdbool.h>
 
 typedef enum
 {
@@ -34,6 +35,7 @@ typedef struct param_node
     size_t             name_len;
     char*              type;
     struct param_node* next;
+    bool               is_variadic;
 } param_node_t;
 
 typedef struct
@@ -85,6 +87,7 @@ typedef struct
     char*            return_type;
     param_node_t*    params;
     struct ast_node* root;
+    bool             is_declaration;
 } ast_func_def_t;
 
 typedef struct

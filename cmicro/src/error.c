@@ -70,15 +70,19 @@ void report_error(const error_t* err)
 
     const char* line_text = get_source_line(err->source, err->line);
 
-    fprintf(stderr, "%s%s%s: %s at line %u, column %u\n", color, label, COLOR_RESET, err->message,
-            err->line, err->column);
+    fprintf(stderr, "%s%s%s: %s ", color, label, COLOR_RESET, err->message);
 
     if (line_text && line_text[0] != '\0')
     {
+        fprintf(stderr, "at line %u, column %u\n", err->line, err->column);
         fprintf(stderr, "%s\n", line_text);
         for (uint32_t i = 1; i < err->column; i++)
             fputc(' ', stderr);
         fprintf(stderr, "%s^\n", color);
         fprintf(stderr, COLOR_RESET);
+    }
+    else
+    {
+        printf("\n");
     }
 }

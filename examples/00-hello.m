@@ -1,6 +1,9 @@
 /* Macro programming languge - Hello, World */
+
 int main()
 {
-    printf("Hello, World!\n");
+    printf("Hello, World!\n"); // UB - since printf isnt really defined somewhere, will compile with
+                               // warning. You can fix this by foward declaring printf like:
+                               //  int printf(...);`
     return 0;
 }
