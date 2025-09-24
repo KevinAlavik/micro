@@ -306,7 +306,7 @@ static gen_result_t gen_number(ast_node_t* node)
             ERROR_FATAL(NULL, 0, 0, "Memory allocation failed for number");
         sprintf(buf, "%ld", node->data.number.value.i64);
         res.val      = buf;
-        res.qbe_type = 'l';
+        res.qbe_type = 'w';
     }
     else
     {
