@@ -131,16 +131,16 @@ static char str_to_qbe_type(const char* s)
     {
         const char* name;
         char        qbe_type;
-    } type_map[] = {{"int", 'l'}, {"float", 'd'}, {"string", 'l'}, {NULL, 0}};
+    } type_map[] = {{"int", 'w'}, {"float", 'd'}, {"string", 'l'}, {NULL, 0}};
     if (!s)
-        return 'l';
+        return 'w';
     for (int i = 0; type_map[i].name; i++)
     {
         if (strcmp(s, type_map[i].name) == 0)
             return type_map[i].qbe_type;
     }
     ERROR_FATAL(NULL, 0, 0, "Unknown type");
-    return 'l';
+    return 'w';
 }
 
 static void push_scope(void)
@@ -347,9 +347,9 @@ static gen_result_t gen_ident(ast_node_t* node)
     var_info_t   vi  = find_sym(node->data.ident.name);
     if (!vi.ptr)
         return res;
-    char* tmp = new_temp();
-    emit("%s =%c load%c %s\n", tmp, vi.vtype, vi.vtype, vi.ptr);
-    res.val      = tmp;
+    res.val = strdup(vi.ptr);
+    if (!res.val)
+        ERROR_FATAL(NULL, 0, 0, "Memory allocation failed for identifier");
     res.qbe_type = vi.vtype;
     return res;
 }
@@ -467,14 +467,20 @@ static gen_result_t gen_func_call(ast_node_t* node)
     }
     for (size_t i = 0; i < node->data.func_call.arg_count; i++)
     {
-        char ptype =
-            (param && i < param_count && !is_variadic) ? str_to_qbe_type(param->type) : 'l';
+        char ptype = 'w';
+        if (param && i < param_count && !is_variadic)
+        {
+            ptype = str_to_qbe_type(param->type);
+            param = param->next;
+        }
+        else if (args[i].qbe_type)
+        {
+            ptype = args[i].qbe_type;
+        }
         emit("%c %s", ptype, args[i].val);
         if (i < node->data.func_call.arg_count - 1)
             emit(", ");
         free(args[i].val);
-        if (param && i < param_count - 1)
-            param = param->next;
     }
     emit(")\n");
     free(args);

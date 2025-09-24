@@ -7,6 +7,6 @@ int add(int a, int b)
 int printf(...);
 int main()
 {
-    printf("add(1, 1) = %d\n", add(1, 1));
+    printf("add(1, 1) = %ld\n", add(1, 1));
     return 0;
 }
